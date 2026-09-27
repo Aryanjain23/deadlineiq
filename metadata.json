@@ -1,0 +1,8 @@
+{
+  "name": "DeadlineIQ",
+  "description": "Academic planning, intelligently. Turn scattered academic notices, assignments and deadlines into a personalized plan that tells you exactly what to do next.",
+  "permissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
