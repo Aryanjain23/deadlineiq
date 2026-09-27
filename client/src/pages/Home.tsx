@@ -23,6 +23,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
+import { useLocation } from "wouter";
 
 type LogoProps = { compact?: boolean };
 
@@ -50,7 +51,15 @@ type MagneticLinkProps = {
 };
 
 function MagneticLink({ href, children, className = "", arrow = false, onClick }: MagneticLinkProps) {
+  const [, navigate] = useLocation();
   const linkRef = useRef<HTMLAnchorElement>(null);
+  const handleClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
+    onClick?.();
+    if (href.startsWith("/") && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
+      event.preventDefault();
+      navigate(href);
+    }
+  };
   const handleMove = (event: React.PointerEvent<HTMLAnchorElement>) => {
     if (event.pointerType === "touch" || !linkRef.current) return;
     const rect = linkRef.current.getBoundingClientRect();
@@ -70,7 +79,7 @@ function MagneticLink({ href, children, className = "", arrow = false, onClick }
       href={href}
       onPointerMove={handleMove}
       onPointerLeave={handleLeave}
-      onClick={onClick}
+      onClick={handleClick}
     >
       <span>{children}</span>
       {arrow && <ArrowUpRight size={16} strokeWidth={1.8} aria-hidden="true" />}
@@ -561,7 +570,7 @@ function FinalCTA() {
           <span className="eyebrow"><span className="eyebrow-line" /> YOUR SEMESTER, BACK IN YOUR HANDS</span>
           <h2>Take control<br />of your <span className="text-gradient">semester.</span></h2>
           <p>DeadlineIQ turns academic chaos into a plan you can actually follow.</p>
-          <MagneticLink href="#top" className="button-primary final-button" arrow>Enter DeadlineIQ <ArrowRight size={15} /></MagneticLink>
+          <MagneticLink href="/login" className="button-primary final-button" arrow>Enter DeadlineIQ <ArrowRight size={15} /></MagneticLink>
           <span className="final-caption"><span className="caption-live" /> BUILT FOR STUDENTS. READY FOR WHAT’S NEXT.</span>
         </Reveal>
       </div>
@@ -594,7 +603,7 @@ export default function Home() {
               <div className="announcement-pill"><span className="announce-spark"><Sparkles size={12} /></span> YOUR SEMESTER, FINALLY IN SYNC <ArrowRight size={12} /></div>
               <h1>Your deadlines.<br /><span>Handled by<br className="mobile-break" /> <em>intelligence.</em></span></h1>
               <p>Turn scattered notices, assignments and academic announcements into a personalized plan that tells you exactly what to do next.</p>
-              <div className="hero-actions"><MagneticLink href="#get-started" className="button-primary" arrow>Enter DeadlineIQ</MagneticLink><a href="#how-it-works" className="button-secondary"><span className="play-icon"><ArrowDown size={13} /></span> See how it works</a></div>
+              <div className="hero-actions"><MagneticLink href="/login" className="button-primary" arrow>Enter DeadlineIQ</MagneticLink><a href="#how-it-works" className="button-secondary"><span className="play-icon"><ArrowDown size={13} /></span> See how it works</a></div>
               <div className="hero-proof"><span className="proof-avatars"><i>R</i><i>M</i><i>A</i><i>+</i></span><span><b>Less “I forgot.”</b><small>More “I’ve got this.”</small></span><span className="proof-divider" /><span className="proof-note"><span className="caption-live" /> MADE FOR THE WAY COLLEGE WORKS</span></div>
             </div>
             <HeroInterface />
