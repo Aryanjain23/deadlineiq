@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
+import { useLocation } from "wouter";
 import {
   ArrowDown,
   ArrowRight,
@@ -51,6 +52,7 @@ type MagneticLinkProps = {
 
 function MagneticLink({ href, children, className = "", arrow = false, onClick }: MagneticLinkProps) {
   const linkRef = useRef<HTMLAnchorElement>(null);
+  const [, setLocation] = useLocation();
   const handleMove = (event: React.PointerEvent<HTMLAnchorElement>) => {
     if (event.pointerType === "touch" || !linkRef.current) return;
     const rect = linkRef.current.getBoundingClientRect();
@@ -63,6 +65,13 @@ function MagneticLink({ href, children, className = "", arrow = false, onClick }
     linkRef.current?.style.setProperty("--mx", "0px");
     linkRef.current?.style.setProperty("--my", "0px");
   };
+  const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    if (onClick) onClick();
+    if (href.startsWith("/")) {
+      e.preventDefault();
+      setLocation(href);
+    }
+  };
   return (
     <a
       ref={linkRef}
@@ -70,7 +79,7 @@ function MagneticLink({ href, children, className = "", arrow = false, onClick }
       href={href}
       onPointerMove={handleMove}
       onPointerLeave={handleLeave}
-      onClick={onClick}
+      onClick={handleClick}
     >
       <span>{children}</span>
       {arrow && <ArrowUpRight size={16} strokeWidth={1.8} aria-hidden="true" />}
@@ -110,6 +119,7 @@ function Reveal({ children, className = "", delay = 0 }: { children: ReactNode; 
 function Header() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [, setLocation] = useLocation();
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24);
     onScroll();
@@ -126,11 +136,39 @@ function Header() {
           <a href="#features" onClick={closeMenu}>Features</a>
           <a href="#how-it-works" onClick={closeMenu}>How it works</a>
           <a href="#about" onClick={closeMenu}>About</a>
-          <a className="nav-mobile-login" href="#get-started" onClick={closeMenu}>Log in <ArrowUpRight size={14} /></a>
+          <a
+            className="nav-mobile-login"
+            href="/login"
+            onClick={(e) => {
+              e.preventDefault();
+              closeMenu();
+              setLocation("/login");
+            }}
+          >
+            Log in <ArrowUpRight size={14} />
+          </a>
         </nav>
         <div className="nav-actions">
-          <a className="nav-login" href="#get-started">Log in</a>
-          <a className="nav-cta" href="#get-started">Get started <ArrowUpRight size={14} /></a>
+          <a
+            className="nav-login"
+            href="/login"
+            onClick={(e) => {
+              e.preventDefault();
+              setLocation("/login");
+            }}
+          >
+            Log in
+          </a>
+          <a
+            className="nav-cta"
+            href="/login"
+            onClick={(e) => {
+              e.preventDefault();
+              setLocation("/login");
+            }}
+          >
+            Get started <ArrowUpRight size={14} />
+          </a>
         </div>
         <button
           className="menu-toggle"
@@ -561,7 +599,7 @@ function FinalCTA() {
           <span className="eyebrow"><span className="eyebrow-line" /> YOUR SEMESTER, BACK IN YOUR HANDS</span>
           <h2>Take control<br />of your <span className="text-gradient">semester.</span></h2>
           <p>DeadlineIQ turns academic chaos into a plan you can actually follow.</p>
-          <MagneticLink href="#top" className="button-primary final-button" arrow>Enter DeadlineIQ <ArrowRight size={15} /></MagneticLink>
+          <MagneticLink href="/login" className="button-primary final-button" arrow>Enter DeadlineIQ <ArrowRight size={15} /></MagneticLink>
           <span className="final-caption"><span className="caption-live" /> BUILT FOR STUDENTS. READY FOR WHAT’S NEXT.</span>
         </Reveal>
       </div>
@@ -594,7 +632,7 @@ export default function Home() {
               <div className="announcement-pill"><span className="announce-spark"><Sparkles size={12} /></span> YOUR SEMESTER, FINALLY IN SYNC <ArrowRight size={12} /></div>
               <h1>Your deadlines.<br /><span>Handled by<br className="mobile-break" /> <em>intelligence.</em></span></h1>
               <p>Turn scattered notices, assignments and academic announcements into a personalized plan that tells you exactly what to do next.</p>
-              <div className="hero-actions"><MagneticLink href="#get-started" className="button-primary" arrow>Enter DeadlineIQ</MagneticLink><a href="#how-it-works" className="button-secondary"><span className="play-icon"><ArrowDown size={13} /></span> See how it works</a></div>
+              <div className="hero-actions"><MagneticLink href="/login" className="button-primary" arrow>Enter DeadlineIQ</MagneticLink><a href="#how-it-works" className="button-secondary"><span className="play-icon"><ArrowDown size={13} /></span> See how it works</a></div>
               <div className="hero-proof"><span className="proof-avatars"><i>R</i><i>M</i><i>A</i><i>+</i></span><span><b>Less “I forgot.”</b><small>More “I’ve got this.”</small></span><span className="proof-divider" /><span className="proof-note"><span className="caption-live" /> MADE FOR THE WAY COLLEGE WORKS</span></div>
             </div>
             <HeroInterface />
