@@ -2,7 +2,7 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
 import { defineConfig } from "vite";
-import { extractDeadlinesWithGemini } from "./server/gemini";
+import { aiService } from "./server/ai";
 import { checkAccount, registerAccount, unregisterAccount } from "./server/accounts";
 
 export default defineConfig({
@@ -84,6 +84,18 @@ export default defineConfig({
           });
         });
 
+        // AI Providers Status endpoint
+        server.middlewares.use("/api/ai/status", (_req, res) => {
+          res.setHeader("Content-Type", "application/json");
+          res.end(
+            JSON.stringify({
+              success: true,
+              providers: aiService.getAvailableProviders(),
+            })
+          );
+        });
+
+        // Unified AI Extraction API (Gemini & OpenRouter with fallback)
         server.middlewares.use("/api/extract-deadlines", async (req, res) => {
           if (req.method !== "POST") {
             res.statusCode = 405;
@@ -99,17 +111,70 @@ export default defineConfig({
           req.on("end", async () => {
             try {
               const payload = JSON.parse(body || "{}");
-              const deadlines = await extractDeadlinesWithGemini(payload);
+              const result = await aiService.extractDeadlines(
+                payload,
+                payload?.preferredProvider
+              );
               res.setHeader("Content-Type", "application/json");
-              res.end(JSON.stringify({ success: true, deadlines }));
+              res.end(
+                JSON.stringify({
+                  success: true,
+                  deadlines: result.data,
+                  provider: result.provider,
+                  model: result.model,
+                })
+              );
             } catch (err: any) {
-              console.error("Gemini Extraction Error:", err);
+              console.error("AI Extraction Error:", err);
               res.statusCode = 500;
               res.setHeader("Content-Type", "application/json");
               res.end(
                 JSON.stringify({
                   success: false,
-                  error: err.message || "Failed to extract deadlines with Gemini.",
+                  error: aiService.sanitizeErrorMessage(err),
+                })
+              );
+            }
+          });
+        });
+
+        // Unified AI Daily Planner API (Gemini & OpenRouter with fallback)
+        server.middlewares.use("/api/plan-my-day", async (req, res) => {
+          if (req.method !== "POST") {
+            res.statusCode = 405;
+            res.end(JSON.stringify({ error: "Method not allowed" }));
+            return;
+          }
+
+          let body = "";
+          req.on("data", (chunk) => {
+            body += chunk;
+          });
+
+          req.on("end", async () => {
+            try {
+              const payload = JSON.parse(body || "{}");
+              const result = await aiService.generatePlanMyDay(
+                payload,
+                payload?.preferredProvider
+              );
+              res.setHeader("Content-Type", "application/json");
+              res.end(
+                JSON.stringify({
+                  success: true,
+                  blocks: result.data,
+                  provider: result.provider,
+                  model: result.model,
+                })
+              );
+            } catch (err: any) {
+              console.error("AI Daily Planner Error:", err);
+              res.statusCode = 500;
+              res.setHeader("Content-Type", "application/json");
+              res.end(
+                JSON.stringify({
+                  success: false,
+                  error: aiService.sanitizeErrorMessage(err),
                 })
               );
             }

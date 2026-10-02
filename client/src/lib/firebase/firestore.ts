@@ -25,7 +25,9 @@ export function getFirebaseDb(): Firestore | null {
 
   try {
     const config = getFirebaseConfig();
-    dbInstance = getFirestore(app, config.firestoreDatabaseId || "(default)");
+    dbInstance = config.firestoreDatabaseId
+      ? getFirestore(app, config.firestoreDatabaseId)
+      : getFirestore(app);
     return dbInstance;
   } catch (error) {
     console.warn("Firestore could not be initialized:", error);

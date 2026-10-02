@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { Link, useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -28,6 +28,8 @@ import {
   Trash2,
   X,
   ArrowRight,
+  LayoutDashboard,
+  User,
 } from "lucide-react";
 import { clearSession, getSession, isAuthenticated, type AuthUser } from "@/lib/auth";
 import { useAuth } from "@/contexts/AuthContext";
@@ -123,6 +125,19 @@ export default function Dashboard() {
   const [isExamsModalOpen, setIsExamsModalOpen] = useState(false);
   const [isFocusModalOpen, setIsFocusModalOpen] = useState(false);
   const [isPlanMyDayModalOpen, setIsPlanMyDayModalOpen] = useState(false);
+
+  // Mobile profile & settings menu state
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const mobileMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isMobileMenuOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsMobileMenuOpen(false);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isMobileMenuOpen]);
 
   // Filter state for deadlines list triggered by statistics cards
   const [activeFilter, setActiveFilter] = useState<"all" | "active" | "overdue" | "today" | "upcoming" | "dueSoon" | "highPriority">("all");
@@ -504,11 +519,11 @@ export default function Dashboard() {
       {/* ================================================== */}
       {/* 2. TOP NAVIGATION HEADER                            */}
       {/* ================================================== */}
-      <header className="relative z-20 w-full border-b border-slate-200/80 dark:border-border bg-[#faf8f5]/90 dark:bg-surface/85 backdrop-blur-2xl shadow-xs dark:shadow-[0_4px_30px_rgba(0,0,0,0.5)]">
-        <div className="max-w-[1376px] mx-auto px-6 md:px-12 h-16 flex items-center justify-between">
+      <header className="relative z-30 w-full border-b border-slate-200/80 dark:border-border bg-[#faf8f5]/95 dark:bg-surface/90 backdrop-blur-2xl shadow-xs dark:shadow-[0_4px_30px_rgba(0,0,0,0.5)] transition-colors">
+        <div className="max-w-[1376px] mx-auto px-4 sm:px-6 md:px-12 h-16 flex items-center justify-between">
           
-          {/* DeadlineIQ Logo */}
-          <Link href="/dashboard" className="brand group" aria-label="DeadlineIQ dashboard">
+          {/* DeadlineIQ Brand Logo */}
+          <Link href="/dashboard" className="brand group flex-shrink-0" aria-label="DeadlineIQ dashboard">
             <span className="brand-mark relative" aria-hidden="true">
               <span className="absolute -inset-1 rounded-lg bg-blue-500/15 dark:bg-[#76d8fb]/20 blur-sm group-hover:bg-blue-500/25 dark:group-hover:bg-[#76d8fb]/35 transition-colors" />
               <svg viewBox="0 0 32 32" fill="none" className="relative z-10 text-blue-600 dark:text-[#b8ecf8]">
@@ -522,18 +537,20 @@ export default function Dashboard() {
             </span>
           </Link>
 
-          <div className="flex items-center gap-2 sm:gap-3">
+          {/* DESKTOP NAVIGATION (Uniform, consistent, strictly aligned) */}
+          <div className="hidden md:flex items-center gap-2.5">
             {/* Calendar Link */}
             <Link
               href="/calendar"
-              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-slate-200/85 dark:border-border bg-white dark:bg-surface hover:bg-slate-50 dark:hover:bg-surface-elevated text-xs font-mono text-slate-700 dark:text-text-secondary hover:text-slate-900 dark:hover:text-text-primary transition-all cursor-pointer shadow-xs active:scale-95 btn-tactile"
+              className="h-9 inline-flex items-center gap-2 px-3.5 rounded-full border border-slate-200/85 dark:border-border bg-white dark:bg-surface hover:bg-slate-50 dark:hover:bg-surface-elevated text-xs font-mono text-slate-700 dark:text-text-secondary hover:text-slate-900 dark:hover:text-text-primary transition-all cursor-pointer shadow-xs active:scale-95 btn-tactile flex-shrink-0"
               title="Open Academic Calendar"
             >
-              <CalendarDays size={13} className="text-[#7c3aed] dark:text-[#a895ff]" />
-              <span className="hidden sm:inline">Calendar</span>
-              <span className="sm:hidden">Cal</span>
+              <span className="w-5 h-5 flex items-center justify-center flex-shrink-0" aria-hidden="true">
+                <CalendarDays size={15} strokeWidth={1.8} className="text-[#7c3aed] dark:text-[#a895ff]" />
+              </span>
+              <span>Calendar</span>
               {events.length > 0 && (
-                <span className="px-1.5 py-0.2 rounded-full text-[9px] bg-purple-500/15 text-purple-700 dark:text-[#d8ceff] font-semibold">
+                <span className="px-1.5 py-0.5 rounded-full text-[9px] font-mono font-semibold bg-purple-500/15 text-purple-700 dark:text-[#d8ceff] leading-none">
                   {events.length}
                 </span>
               )}
@@ -541,36 +558,40 @@ export default function Dashboard() {
 
             {/* My Timetable Button */}
             <button
+              type="button"
               onClick={() => setIsTimetableModalOpen(true)}
-              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-slate-200/85 dark:border-border bg-white dark:bg-surface hover:bg-slate-50 dark:hover:bg-surface-elevated text-xs font-mono text-slate-700 dark:text-text-secondary hover:text-slate-900 dark:hover:text-text-primary transition-all cursor-pointer shadow-xs active:scale-95 btn-tactile"
+              className="h-9 inline-flex items-center gap-2 px-3.5 rounded-full border border-slate-200/85 dark:border-border bg-white dark:bg-surface hover:bg-slate-50 dark:hover:bg-surface-elevated text-xs font-mono text-slate-700 dark:text-text-secondary hover:text-slate-900 dark:hover:text-text-primary transition-all cursor-pointer shadow-xs active:scale-95 btn-tactile flex-shrink-0"
               title="Open Weekly Timetable"
             >
-              <Calendar size={13} className="text-[#0284c7] dark:text-[#76d8fb]" />
-              <span className="hidden sm:inline">My Timetable</span>
-              <span className="sm:hidden">Timetable</span>
+              <span className="w-5 h-5 flex items-center justify-center flex-shrink-0" aria-hidden="true">
+                <Calendar size={15} strokeWidth={1.8} className="text-[#0284c7] dark:text-[#76d8fb]" />
+              </span>
+              <span>My Timetable</span>
             </button>
 
             {/* My Exams Button */}
             <button
+              type="button"
               onClick={() => setIsExamsModalOpen(true)}
-              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-slate-200/85 dark:border-border bg-white dark:bg-surface hover:bg-slate-50 dark:hover:bg-surface-elevated text-xs font-mono text-slate-700 dark:text-text-secondary hover:text-slate-900 dark:hover:text-text-primary transition-all cursor-pointer shadow-xs active:scale-95 btn-tactile"
+              className="h-9 inline-flex items-center gap-2 px-3.5 rounded-full border border-slate-200/85 dark:border-border bg-white dark:bg-surface hover:bg-slate-50 dark:hover:bg-surface-elevated text-xs font-mono text-slate-700 dark:text-text-secondary hover:text-slate-900 dark:hover:text-text-primary transition-all cursor-pointer shadow-xs active:scale-95 btn-tactile flex-shrink-0"
               title="Open Exam Schedule"
             >
-              <GraduationCap size={14} className="text-amber-600 dark:text-[#fbaf72]" />
-              <span className="hidden sm:inline">My Exams</span>
-              <span className="sm:hidden">Exams</span>
+              <span className="w-5 h-5 flex items-center justify-center flex-shrink-0" aria-hidden="true">
+                <GraduationCap size={15} strokeWidth={1.8} className="text-amber-600 dark:text-[#fbaf72]" />
+              </span>
+              <span>My Exams</span>
               {exams.length > 0 && (
-                <span className="px-1.5 py-0.2 rounded-full text-[9px] bg-amber-500/15 text-amber-700 dark:text-[#fed7aa] font-semibold">
+                <span className="px-1.5 py-0.5 rounded-full text-[9px] font-mono font-semibold bg-amber-500/15 text-amber-700 dark:text-[#fed7aa] leading-none">
                   {exams.length}
                 </span>
               )}
             </button>
 
             {/* Theme Toggle */}
-            <ThemeToggle />
+            <ThemeToggle className="h-9" />
 
             {/* Logged-in user capsule */}
-            <div className="hidden md:inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-full border border-slate-200/85 dark:border-border bg-white/90 dark:bg-surface/90 backdrop-blur-md shadow-xs text-xs font-mono text-slate-700 dark:text-text-secondary">
+            <div className="h-9 inline-flex items-center gap-2.5 px-3.5 rounded-full border border-slate-200/85 dark:border-border bg-white/90 dark:bg-surface/90 backdrop-blur-md shadow-xs text-xs font-mono text-slate-700 dark:text-text-secondary flex-shrink-0">
               {currentUser.photoURL ? (
                 <img
                   src={currentUser.photoURL}
@@ -584,35 +605,142 @@ export default function Dashboard() {
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-[#10b981] dark:bg-[#75d5b0]" />
                 </span>
               )}
-              <span>Logged in as: <strong className="text-slate-900 dark:text-white font-medium">{currentUser.name || currentUser.email || currentUser.usn}</strong></span>
+              <span className="truncate max-w-[140px] lg:max-w-[200px]">
+                <strong className="text-slate-900 dark:text-white font-medium">
+                  {currentUser.name || currentUser.email || currentUser.usn}
+                </strong>
+              </span>
             </div>
 
             {/* Logout button */}
             <button
+              type="button"
               onClick={handleLogout}
-              className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 dark:text-text-secondary hover:text-rose-600 dark:hover:text-[#fb7185] transition-all duration-200 py-1.5 px-2.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-500/10 border border-transparent hover:border-rose-200 dark:hover:border-rose-500/25 cursor-pointer active:scale-95"
+              className="h-9 inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 dark:text-text-secondary hover:text-rose-600 dark:hover:text-[#fb7185] transition-all duration-200 px-3 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-500/10 border border-transparent hover:border-rose-200 dark:hover:border-rose-500/25 cursor-pointer active:scale-95 flex-shrink-0"
               title="Log out"
             >
-              <LogOut size={13} />
-              <span className="hidden sm:inline">Logout</span>
+              <LogOut size={14} />
+              <span>Logout</span>
             </button>
+          </div>
+
+          {/* MOBILE TOP BAR (Clean, non-cramped profile button & dropdown) */}
+          <div className="md:hidden relative flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              className="h-9 px-2.5 rounded-full border border-slate-200/90 dark:border-white/10 bg-white dark:bg-surface flex items-center gap-2 text-xs font-mono text-slate-800 dark:text-white shadow-xs cursor-pointer active:scale-95 transition-all"
+              aria-label="Open user menu"
+              aria-expanded={isMobileMenuOpen}
+            >
+              {currentUser.photoURL ? (
+                <img
+                  src={currentUser.photoURL}
+                  alt={currentUser.name || "User"}
+                  className="w-5 h-5 rounded-full object-cover border border-blue-400 dark:border-[#76d8fb]/40"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <div className="w-5 h-5 rounded-full bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 flex items-center justify-center font-bold text-[10px]">
+                  {(currentUser.name || currentUser.email || "U")[0].toUpperCase()}
+                </div>
+              )}
+              <span className="max-w-[90px] sm:max-w-[130px] truncate font-medium">
+                {firstName}
+              </span>
+              <ChevronDown
+                size={12}
+                className={`text-slate-400 transition-transform duration-200 ${isMobileMenuOpen ? "rotate-180" : ""}`}
+              />
+            </button>
+
+            {/* Mobile Profile & Secondary Controls Dropdown */}
+            {isMobileMenuOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-40 bg-slate-900/40 dark:bg-black/60 backdrop-blur-xs transition-opacity"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  aria-hidden="true"
+                />
+
+                <div
+                  ref={mobileMenuRef}
+                  className="absolute top-12 right-0 z-50 w-72 rounded-2xl border border-slate-200/90 dark:border-white/10 bg-[#fcfbf9] dark:bg-[#0c101a] p-4 shadow-xl dark:shadow-2xl space-y-3.5 animate-in fade-in zoom-in-95 duration-150"
+                >
+                  {/* User Profile Header */}
+                  <div className="flex items-center gap-3 pb-3 border-b border-slate-200/80 dark:border-white/[0.08]">
+                    {currentUser.photoURL ? (
+                      <img
+                        src={currentUser.photoURL}
+                        alt={currentUser.name || "User"}
+                        className="w-10 h-10 rounded-full object-cover border border-blue-400 dark:border-[#76d8fb]/40"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 flex items-center justify-center font-bold text-sm">
+                        {(currentUser.name || currentUser.email || "U")[0].toUpperCase()}
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-semibold text-slate-900 dark:text-white truncate">
+                        {currentUser.name || "Student"}
+                      </div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400 font-mono truncate">
+                        {currentUser.email || currentUser.usn || "Active Session"}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Theme Switching Row */}
+                  <div className="flex items-center justify-between py-1">
+                    <span className="text-xs font-mono text-slate-600 dark:text-slate-400">
+                      Appearance
+                    </span>
+                    <ThemeToggle variant="segmented" />
+                  </div>
+
+                  {/* Quick Summary Pill */}
+                  <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-white/[0.03] border border-slate-200/70 dark:border-white/[0.06] flex items-center justify-between text-xs">
+                    <span className="text-slate-600 dark:text-slate-400">Deadlines Tracked</span>
+                    <span className="font-mono font-semibold text-slate-900 dark:text-white">
+                      {deadlines.length}
+                    </span>
+                  </div>
+
+                  {/* Logout Button */}
+                  <div className="pt-2 border-t border-slate-200/80 dark:border-white/[0.08]">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsMobileMenuOpen(false);
+                        handleLogout();
+                      }}
+                      className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-medium text-rose-600 hover:text-rose-700 dark:text-rose-400 bg-rose-50/50 hover:bg-rose-50 dark:bg-rose-500/10 dark:hover:bg-rose-500/20 border border-rose-200/80 dark:border-rose-500/30 transition-all cursor-pointer"
+                    >
+                      <LogOut size={14} />
+                      <span>Log out</span>
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </header>
 
       {/* Main Content Area */}
-      <main className="relative z-10 flex-1 max-w-[1376px] w-full mx-auto px-6 md:px-12 py-8 md:py-10 space-y-8">
+      <main className="relative z-10 flex-1 max-w-[1376px] w-full mx-auto px-4 sm:px-6 md:px-12 pt-6 pb-24 md:py-10 space-y-8">
         
         {/* ================================================== */}
         {/* 3. PERSONALIZED OVERVIEW HEADER                     */}
         {/* ================================================== */}
-        <section className="flex flex-col md:flex-row md:items-end md:justify-between gap-6 pb-6 border-b border-slate-200/80 dark:border-white/[0.06]">
+        <section className="flex flex-col md:flex-row md:items-end md:justify-between gap-5 pb-6 border-b border-slate-200/80 dark:border-white/[0.06]">
           <div>
-            {/* User Greeting (Natural, direct, human) */}
-            <h1 className="text-3xl sm:text-4xl md:text-5xl font-semibold tracking-tight text-slate-900 dark:text-white font-['Space_Grotesk',sans-serif] leading-tight">
+            {/* User Greeting */}
+            <h1 className="text-2xl sm:text-4xl md:text-5xl font-semibold tracking-tight text-slate-900 dark:text-white font-['Space_Grotesk',sans-serif] leading-tight">
               Hello, {firstName}.
             </h1>
-            <p className="text-sm sm:text-base text-slate-600 dark:text-slate-400 mt-1.5 font-normal leading-relaxed">
+            <p className="text-xs sm:text-base text-slate-600 dark:text-slate-400 mt-1 font-normal leading-relaxed">
               {overdueDeadlines.length > 0 ? (
                 <span className="text-rose-600 dark:text-rose-400 font-medium">
                   Attention required: You have {overdueDeadlines.length} overdue task{overdueDeadlines.length > 1 ? "s" : ""}.
@@ -627,34 +755,39 @@ export default function Dashboard() {
             </p>
           </div>
 
-          {/* Quick Primary Actions */}
-          <div className="flex flex-wrap items-center gap-3">
+          {/* Quick Primary Actions (Reflows comfortably on mobile) */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 sm:gap-3 w-full md:w-auto">
             <button
+              type="button"
               onClick={() => setIsPlanMyDayModalOpen(true)}
-              className="px-4 py-2.5 rounded-xl text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 dark:bg-blue-600 dark:hover:bg-blue-500 shadow-sm transition-all flex items-center gap-2 cursor-pointer btn-tactile"
+              className="w-full sm:w-auto min-h-[44px] px-5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-white bg-slate-900 hover:bg-slate-800 dark:bg-blue-600 dark:hover:bg-blue-500 shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer btn-tactile active:scale-95 flex-shrink-0"
               title="Generate your schedule for today"
             >
-              <Calendar size={14} />
+              <Calendar size={15} />
               <span>Plan My Day</span>
             </button>
 
-            <button
-              onClick={() => setIsAiModalOpen(true)}
-              className="px-4 py-2.5 rounded-xl text-xs font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-white/[0.04] hover:bg-slate-50 dark:hover:bg-white/[0.08] border border-slate-200 dark:border-white/10 shadow-xs transition-all flex items-center gap-2 cursor-pointer btn-tactile"
-              title="Import deadlines from notices or documents"
-            >
-              <FileText size={14} className="text-blue-600 dark:text-blue-400" />
-              <span>AI Extract</span>
-            </button>
+            <div className="grid grid-cols-2 gap-2.5 sm:flex sm:items-center sm:gap-3 w-full sm:w-auto">
+              <button
+                type="button"
+                onClick={() => setIsAiModalOpen(true)}
+                className="min-h-[42px] px-3.5 py-2 rounded-xl text-xs font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-white/[0.04] hover:bg-slate-50 dark:hover:bg-white/[0.08] border border-slate-200 dark:border-white/10 shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer btn-tactile active:scale-95"
+                title="Import deadlines from notices or documents"
+              >
+                <FileText size={14} className="text-blue-600 dark:text-blue-400" />
+                <span>AI Extract</span>
+              </button>
 
-            <button
-              onClick={() => setIsManualModalOpen(true)}
-              className="px-4 py-2.5 rounded-xl text-xs font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-white/[0.04] hover:bg-slate-50 dark:hover:bg-white/[0.08] border border-slate-200 dark:border-white/10 shadow-xs transition-all flex items-center gap-2 cursor-pointer btn-tactile"
-              title="Add a new deadline manually"
-            >
-              <Plus size={14} />
-              <span>Add deadline</span>
-            </button>
+              <button
+                type="button"
+                onClick={() => setIsManualModalOpen(true)}
+                className="min-h-[42px] px-3.5 py-2 rounded-xl text-xs font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-white/[0.04] hover:bg-slate-50 dark:hover:bg-white/[0.08] border border-slate-200 dark:border-white/10 shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer btn-tactile active:scale-95"
+                title="Add a new deadline manually"
+              >
+                <Plus size={14} />
+                <span>Add deadline</span>
+              </button>
+            </div>
           </div>
         </section>
 
@@ -662,7 +795,7 @@ export default function Dashboard() {
         {/* 4. COMPACT & CLICKABLE STATISTICS BAR              */}
         {/* ================================================== */}
         <section aria-label="Workload Statistics">
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 sm:gap-3">
             
             {/* ALL ACTIVE */}
             <div
@@ -1436,13 +1569,13 @@ export default function Dashboard() {
                         <div
                           key={item.id}
                           id={`deadline-${item.id}`}
-                          className={`liquid-glass-card ${glowClass} rounded-2xl p-4 sm:p-5 flex items-center gap-4 group transition-all duration-300 scroll-mt-24`}
+                          className={`liquid-glass-card ${glowClass} rounded-2xl p-3.5 sm:p-5 flex items-start sm:items-center gap-3 sm:gap-4 group transition-all duration-300 scroll-mt-24`}
                         >
                           {/* Liquid Checkbox Circle with Satisfying Interaction */}
                           <button
                             type="button"
                             onClick={() => handleToggleComplete(item.id)}
-                            className="w-6 h-6 rounded-full border-2 border-slate-300 hover:border-blue-600 bg-white hover:bg-blue-50/50 shadow-xs dark:border-white/20 dark:hover:border-[#76d8fb] dark:bg-white/[0.03] dark:hover:bg-[#76d8fb]/15 hover:shadow-xs dark:hover:shadow-[0_0_14px_rgba(118,216,251,0.4)] flex items-center justify-center transition-all duration-200 cursor-pointer flex-shrink-0 group/chk focus:outline-none"
+                            className="w-6 h-6 rounded-full border-2 border-slate-300 hover:border-blue-600 bg-white hover:bg-blue-50/50 shadow-xs dark:border-white/20 dark:hover:border-[#76d8fb] dark:bg-white/[0.03] dark:hover:bg-[#76d8fb]/15 hover:shadow-xs dark:hover:shadow-[0_0_14px_rgba(118,216,251,0.4)] flex items-center justify-center transition-all duration-200 cursor-pointer flex-shrink-0 group/chk focus:outline-none mt-0.5 sm:mt-0"
                             aria-label={`Mark "${item.taskName}" as complete`}
                           >
                             <span className="w-2 h-2 rounded-full bg-transparent group-hover/chk:bg-blue-600 dark:group-hover/chk:bg-[#76d8fb]/60 transition-colors" />
@@ -1450,7 +1583,7 @@ export default function Dashboard() {
 
                           {/* Task details */}
                           <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center gap-2.5">
+                            <div className="flex flex-wrap items-center gap-2">
                               <h4 className="text-base sm:text-lg font-medium text-slate-900 dark:text-white/95 tracking-tight group-hover:text-blue-600 dark:group-hover:text-white transition-colors">
                                 {item.taskName}
                               </h4>
@@ -1461,7 +1594,7 @@ export default function Dashboard() {
                               )}
                             </div>
 
-                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 mt-1.5 text-xs text-slate-600 dark:text-[#8c97a8]">
+                            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 mt-1.5 text-xs text-slate-600 dark:text-[#8c97a8]">
                               {/* Subject tag */}
                               <span className="px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-slate-800 dark:bg-white/[0.04] dark:border-white/[0.06] dark:text-[#cbd5e1] font-mono text-[11px] font-medium">
                                 {item.subject}
@@ -1479,7 +1612,7 @@ export default function Dashboard() {
                               {item.description && (
                                 <>
                                   <span className="text-slate-300 dark:text-[#3a4454]">•</span>
-                                  <span className="truncate max-w-[340px] text-slate-500 dark:text-[#788597]">
+                                  <span className="truncate max-w-[280px] sm:max-w-[340px] text-slate-500 dark:text-[#788597]">
                                     {item.description}
                                   </span>
                                 </>
@@ -1488,13 +1621,13 @@ export default function Dashboard() {
                           </div>
 
                           {/* Importance badge & delete button */}
-                          <div className="flex items-center gap-3.5 flex-shrink-0">
+                          <div className="flex items-center gap-2 sm:gap-3.5 flex-shrink-0">
                             {getImportanceBadge(item.importance, false)}
 
                             <button
                               type="button"
                               onClick={() => handleDeleteDeadline(item.id)}
-                              className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:text-[#525f72] dark:hover:text-[#fb7185] dark:hover:bg-rose-500/10 p-1.5 rounded-lg transition-all opacity-0 group-hover:opacity-100 focus:opacity-100 cursor-pointer"
+                              className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:text-[#525f72] dark:hover:text-[#fb7185] dark:hover:bg-rose-500/10 p-1.5 rounded-lg transition-all opacity-80 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100 cursor-pointer"
                               title="Delete deadline"
                               aria-label="Delete deadline"
                             >
@@ -1523,7 +1656,7 @@ export default function Dashboard() {
                     {completed.map((item) => (
                       <div
                         key={item.id}
-                        className="liquid-glass-card rounded-2xl p-3.5 sm:p-4.5 flex items-center gap-4 bg-slate-50/80 border border-slate-200/80 dark:bg-white/[0.02] dark:border-white/[0.06]"
+                        className="liquid-glass-card rounded-2xl p-3.5 sm:p-4.5 flex items-center gap-3 sm:gap-4 bg-slate-50/80 border border-slate-200/80 dark:bg-white/[0.02] dark:border-white/[0.06]"
                       >
                         {/* Checked Checkbox with Emerald Fill */}
                         <button
@@ -1548,13 +1681,13 @@ export default function Dashboard() {
                         </div>
 
                         {/* Badge & delete */}
-                        <div className="flex items-center gap-3.5 flex-shrink-0">
+                        <div className="flex items-center gap-2 sm:gap-3.5 flex-shrink-0">
                           {getImportanceBadge(item.importance, true)}
 
                           <button
                             type="button"
                             onClick={() => handleDeleteDeadline(item.id)}
-                            className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:text-[#475262] dark:hover:text-[#fb7185] dark:hover:bg-rose-500/10 p-1.5 rounded-lg transition-all opacity-0 group-hover:opacity-100 focus:opacity-100 cursor-pointer"
+                            className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:text-[#475262] dark:hover:text-[#fb7185] dark:hover:bg-rose-500/10 p-1.5 rounded-lg transition-all opacity-80 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100 cursor-pointer"
                             title="Delete deadline"
                             aria-label="Delete deadline"
                           >
@@ -1572,6 +1705,75 @@ export default function Dashboard() {
         </section>
       </main>
 
+      {/* ================================================== */}
+      {/* MOBILE BOTTOM NAVIGATION BAR                       */}
+      {/* ================================================== */}
+      <nav
+        aria-label="Mobile Navigation"
+        className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-[#faf8f5]/95 dark:bg-[#0c101a]/95 backdrop-blur-xl border-t border-slate-200/80 dark:border-white/[0.08] shadow-[0_-4px_20px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_25px_rgba(0,0,0,0.4)] pb-[max(env(safe-area-inset-bottom),8px)] pt-1.5 px-3 transition-colors"
+      >
+        <div className="grid grid-cols-4 items-center gap-1 max-w-md mx-auto">
+          {/* 1. Home / Dashboard */}
+          <button
+            type="button"
+            onClick={() => {
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }}
+            className="flex flex-col items-center justify-center min-h-[48px] py-1 px-2 rounded-xl text-blue-600 dark:text-[#76d8fb] transition-all cursor-pointer active:scale-95 group"
+          >
+            <span className="w-5 h-5 flex items-center justify-center flex-shrink-0" aria-hidden="true">
+              <LayoutDashboard size={18} strokeWidth={2} />
+            </span>
+            <span className="text-[10px] font-medium tracking-tight mt-0.5">Home</span>
+          </button>
+
+          {/* 2. My Timetable */}
+          <button
+            type="button"
+            onClick={() => setIsTimetableModalOpen(true)}
+            className="flex flex-col items-center justify-center min-h-[48px] py-1 px-2 rounded-xl text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-all cursor-pointer active:scale-95 group"
+          >
+            <span className="w-5 h-5 flex items-center justify-center flex-shrink-0" aria-hidden="true">
+              <Calendar size={18} strokeWidth={1.8} className="text-[#0284c7] dark:text-[#76d8fb]" />
+            </span>
+            <span className="text-[10px] font-medium tracking-tight mt-0.5">Timetable</span>
+          </button>
+
+          {/* 3. My Exams */}
+          <button
+            type="button"
+            onClick={() => setIsExamsModalOpen(true)}
+            className="flex flex-col items-center justify-center min-h-[48px] py-1 px-2 rounded-xl text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-all cursor-pointer active:scale-95 group relative"
+          >
+            <span className="w-5 h-5 flex items-center justify-center flex-shrink-0 relative" aria-hidden="true">
+              <GraduationCap size={18} strokeWidth={1.8} className="text-amber-600 dark:text-[#fbaf72]" />
+              {exams.length > 0 && (
+                <span className="absolute -top-1 -right-2 px-1 py-0.2 rounded-full text-[8px] font-mono font-bold bg-amber-500 text-white leading-none">
+                  {exams.length}
+                </span>
+              )}
+            </span>
+            <span className="text-[10px] font-medium tracking-tight mt-0.5">Exams</span>
+          </button>
+
+          {/* 4. Calendar */}
+          <Link
+            href="/calendar"
+            className="flex flex-col items-center justify-center min-h-[48px] py-1 px-2 rounded-xl text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-all cursor-pointer active:scale-95 group relative"
+          >
+            <span className="w-5 h-5 flex items-center justify-center flex-shrink-0 relative" aria-hidden="true">
+              <CalendarDays size={18} strokeWidth={1.8} className="text-[#7c3aed] dark:text-[#a895ff]" />
+              {events.length > 0 && (
+                <span className="absolute -top-1 -right-2 px-1 py-0.2 rounded-full text-[8px] font-mono font-bold bg-purple-500 text-white leading-none">
+                  {events.length}
+                </span>
+              )}
+            </span>
+            <span className="text-[10px] font-medium tracking-tight mt-0.5">Calendar</span>
+          </Link>
+        </div>
+      </nav>
+
       {/* MODALS */}
       <ManualEntryModal
         isOpen={isManualModalOpen}
@@ -1585,6 +1787,7 @@ export default function Dashboard() {
         isOpen={isAiModalOpen}
         onClose={() => setIsAiModalOpen(false)}
         timetable={timetable}
+        existingDeadlines={deadlines}
         onAddDeadline={handleAddDeadline}
         onOpenManualModal={() => setIsManualModalOpen(true)}
       />
