@@ -1,0 +1,408 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Student user profile information with USN and academic branch details",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Unique Firebase Authentication UID",
+          "maxLength": 128
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Full name of the student",
+          "maxLength": 120
+        },
+        "usn": {
+          "type": "string",
+          "description": "University Seat Number or student registration ID",
+          "maxLength": 30
+        },
+        "email": {
+          "type": "string",
+          "description": "Institutional or student email address",
+          "maxLength": 256
+        },
+        "branch": {
+          "type": "string",
+          "description": "Academic engineering department or branch",
+          "maxLength": 100
+        },
+        "semester": {
+          "type": "string",
+          "description": "Current active academic semester",
+          "maxLength": 30
+        },
+        "college": {
+          "type": "string",
+          "description": "Institution or university name",
+          "maxLength": 150
+        },
+        "photoURL": {
+          "type": "string",
+          "description": "Profile picture URL",
+          "maxLength": 1024
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when the user account was created"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when the profile was last modified"
+        }
+      },
+      "required": ["uid", "displayName", "usn", "createdAt", "updatedAt"]
+    },
+    "Deadline": {
+      "title": "Deadline",
+      "description": "Academic deadline, assignment, project submission, or lab evaluation task",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the deadline item",
+          "maxLength": 128
+        },
+        "taskName": {
+          "type": "string",
+          "description": "Name or title of the academic deadline task",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "subject": {
+          "type": "string",
+          "description": "Academic course or subject name",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "description": {
+          "type": "string",
+          "description": "Optional notes or instructions for the deadline",
+          "maxLength": 1000
+        },
+        "dueDate": {
+          "type": "string",
+          "description": "Due date formatted as YYYY-MM-DD",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "dueTime": {
+          "type": "string",
+          "description": "Optional due time in 24-hour HH:mm format",
+          "maxLength": 10
+        },
+        "importance": {
+          "type": "string",
+          "description": "Calculated priority level of the task",
+          "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
+        },
+        "completed": {
+          "type": "boolean",
+          "description": "Whether the deadline task has been marked as finished"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when the deadline was registered"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when the deadline was last updated"
+        },
+        "source": {
+          "type": "string",
+          "description": "Source origin of the deadline record",
+          "enum": ["manual", "ai"]
+        },
+        "sourceType": {
+          "type": "string",
+          "description": "Detailed source modality",
+          "enum": ["manual", "ai", "imported"]
+        },
+        "sourceId": {
+          "type": "string",
+          "description": "Reference identifier of the source document or notice",
+          "maxLength": 128
+        },
+        "dateSource": {
+          "type": "string",
+          "description": "Provenance of the assigned deadline date",
+          "enum": ["ai-extracted", "timetable-inferred", "user-entered"]
+        },
+        "confidence": {
+          "type": "string",
+          "description": "AI extraction confidence level",
+          "enum": ["HIGH", "MEDIUM", "LOW"]
+        },
+        "timetableDerived": {
+          "type": "boolean",
+          "description": "Whether the date was inferred from the timetable context engine"
+        }
+      },
+      "required": ["id", "taskName", "subject", "dueDate", "importance", "completed", "createdAt", "updatedAt"]
+    },
+    "TimetableEntry": {
+      "title": "TimetableEntry",
+      "description": "Weekly recurring timetable class or laboratory session",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the timetable schedule entry",
+          "maxLength": 128
+        },
+        "day": {
+          "type": "string",
+          "description": "Day of the week",
+          "enum": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        },
+        "subject": {
+          "type": "string",
+          "description": "Subject or lab title",
+          "maxLength": 100
+        },
+        "subjectCode": {
+          "type": "string",
+          "description": "University course code",
+          "maxLength": 20
+        },
+        "startTime": {
+          "type": "string",
+          "description": "Class start time in 24h format e.g. 09:00",
+          "maxLength": 10
+        },
+        "endTime": {
+          "type": "string",
+          "description": "Class end time in 24h format e.g. 10:00",
+          "maxLength": 10
+        },
+        "room": {
+          "type": "string",
+          "description": "Lecture hall, laboratory room number, or classroom",
+          "maxLength": 50
+        },
+        "instructor": {
+          "type": "string",
+          "description": "Professor, lecturer, or instructor name",
+          "maxLength": 100
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when this timetable block was added"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when this timetable block was last edited"
+        }
+      },
+      "required": ["id", "day", "subject", "startTime", "endTime"]
+    },
+    "SourceDocument": {
+      "title": "SourceDocument",
+      "description": "Uploaded academic document, syllabus, circular notice, or timetable image",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique source document ID",
+          "maxLength": 128
+        },
+        "name": {
+          "type": "string",
+          "description": "Original file name",
+          "maxLength": 255
+        },
+        "fileType": {
+          "type": "string",
+          "description": "MIME type of uploaded notice",
+          "enum": ["image/jpeg", "image/png", "application/pdf", "text/plain"]
+        },
+        "storagePath": {
+          "type": "string",
+          "description": "Firebase Cloud Storage object reference path",
+          "maxLength": 512
+        },
+        "sizeBytes": {
+          "type": "number",
+          "description": "File size in bytes"
+        },
+        "extractedDeadlinesCount": {
+          "type": "number",
+          "description": "Number of deadlines identified by AI in this notice"
+        },
+        "uploadedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when the document was uploaded"
+        }
+      },
+      "required": ["id", "name", "fileType", "uploadedAt"]
+    },
+    "UserSettings": {
+      "title": "UserSettings",
+      "description": "Student customizable preferences and display configurations",
+      "type": "object",
+      "properties": {
+        "theme": {
+          "type": "string",
+          "description": "Active UI theme",
+          "enum": ["dark", "system"]
+        },
+        "notificationReminders": {
+          "type": "boolean",
+          "description": "Whether deadline alert notifications are activated"
+        },
+        "radarWindowDays": {
+          "type": "number",
+          "description": "Number of lookahead days for Academic Radar"
+        },
+        "pomodoroFocusMinutes": {
+          "type": "number",
+          "description": "Duration in minutes for Focus Now session timer"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when settings were last modified"
+        }
+      },
+      "required": ["theme", "notificationReminders", "updatedAt"]
+    },
+    "NotificationToken": {
+      "title": "NotificationToken",
+      "description": "FCM device registration token for future academic push notifications",
+      "type": "object",
+      "properties": {
+        "token": {
+          "type": "string",
+          "description": "FCM device registration token",
+          "maxLength": 512
+        },
+        "devicePlatform": {
+          "type": "string",
+          "description": "Client runtime platform",
+          "enum": ["web", "android", "ios"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Token registration timestamp"
+        },
+        "lastUsedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp of most recent push delivery"
+        }
+      },
+      "required": ["token", "devicePlatform", "createdAt"]
+    },
+    "Exam": {
+      "title": "Exam",
+      "description": "Scheduled exam record for the student",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "subject": { "type": "string" },
+        "subjectCode": { "type": "string" },
+        "examDate": { "type": "string" },
+        "startTime": { "type": "string" },
+        "endTime": { "type": "string" },
+        "examType": { "type": "string" },
+        "room": { "type": "string" },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "subject", "examDate", "startTime"]
+    },
+    "CalendarEvent": {
+      "title": "CalendarEvent",
+      "description": "User-specific calendar event across academic, sports, personal, and other categories",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "date": { "type": "string" },
+        "startTime": { "type": "string" },
+        "endTime": { "type": "string" },
+        "category": {
+          "type": "string",
+          "enum": ["Academic", "Sports", "Personal", "Other"]
+        },
+        "location": { "type": "string" },
+        "notes": { "type": "string" },
+        "allDay": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "title", "date", "category"]
+    },
+    "RegisteredUser": {
+      "title": "RegisteredUser",
+      "description": "Public directory entry used for account verification across Sign In and Create Account tabs",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "description": "Student email address in lowercase",
+          "maxLength": 256
+        },
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the registered student",
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Account registration timestamp"
+        }
+      },
+      "required": ["email", "uid", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/registeredUsers/{emailKey}": {
+      "schema": "RegisteredUser",
+      "description": "Directory of registered DeadlineIQ user emails to verify account existence before granting access"
+    },
+    "/users/{uid}": {
+      "schema": "User",
+      "description": "Student user profile documents indexed by Firebase Auth UID"
+    },
+    "/users/{uid}/deadlines/{deadlineId}": {
+      "schema": "Deadline",
+      "description": "Academic tasks and assignments belonging strictly to the authenticated student"
+    },
+    "/users/{uid}/timetable/{timetableId}": {
+      "schema": "TimetableEntry",
+      "description": "Weekly course timetable records belonging strictly to the authenticated student"
+    },
+    "/users/{uid}/exams/{examId}": {
+      "schema": "Exam",
+      "description": "Scheduled examination records belonging strictly to the authenticated student"
+    },
+    "/users/{uid}/events/{eventId}": {
+      "schema": "CalendarEvent",
+      "description": "User-specific calendar events belonging strictly to the authenticated student"
+    },
+    "/users/{uid}/settings/{settingId}": {
+      "schema": "UserSettings",
+      "description": "Configuration preferences for the student"
+    },
+    "/users/{uid}/sources/{sourceId}": {
+      "schema": "SourceDocument",
+      "description": "Metadata for source notices and PDFs processed by AI"
+    },
+    "/users/{uid}/notificationTokens/{tokenId}": {
+      "schema": "NotificationToken",
+      "description": "Push notification device tokens registered for the student"
+    }
+  }
+}

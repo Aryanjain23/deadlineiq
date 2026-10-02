@@ -1,0 +1,145 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // GLOBAL SECURITY HELPERS & PRIMITIVES
+    // ===============================================================
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // ===============================================================
+    // VALIDATION BLUEPRINTS
+    // ===============================================================
+
+    function isValidUser(data, uid) {
+      return data.uid == uid &&
+             data.displayName is string && data.displayName.size() > 0 && data.displayName.size() <= 120 &&
+             data.usn is string && data.usn.size() > 0 && data.usn.size() <= 30 &&
+             (!('email' in data) || data.email == null || (data.email is string && data.email.size() <= 256));
+    }
+
+    function isValidDeadline(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.taskName is string && data.taskName.size() > 0 && data.taskName.size() <= 200 &&
+             data.subject is string && data.subject.size() > 0 && data.subject.size() <= 100 &&
+             data.dueDate is string && data.dueDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$') &&
+             data.importance in ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] &&
+             data.completed is bool &&
+             (!('description' in data) || data.description == null || (data.description is string && data.description.size() <= 1000));
+    }
+
+    function isValidTimetable(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.day in ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] &&
+             data.subject is string && data.subject.size() > 0 && data.subject.size() <= 100 &&
+             data.startTime is string && data.startTime.size() <= 10 &&
+             data.endTime is string && data.endTime.size() <= 10;
+    }
+
+    // ===============================================================
+    // 1. DEFAULT DENY CATCH-ALL
+    // ===============================================================
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ===============================================================
+    // 2. REGISTERED USERS DIRECTORY (ACCOUNT VERIFICATION)
+    // Allows single-document lookup for Sign In & Create Account checks
+    // Strict denial of collection listing to prevent email enumeration
+    // ===============================================================
+    match /registeredUsers/{emailKey} {
+      allow get: if true;
+      allow list: if false;
+      allow create, update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+
+    // ===============================================================
+    // 3. USER PROFILE
+    // Strict isolation: users can only read and write their own profile
+    // ===============================================================
+    match /users/{uid} {
+      allow read, delete: if isOwner(uid);
+      allow create: if isOwner(uid) && isValidUser(incoming(), uid);
+      allow update: if isOwner(uid) && isValidUser(incoming(), uid);
+
+      // -------------------------------------------------------------
+      // 3. USER DEADLINES SUBCOLLECTION
+      // -------------------------------------------------------------
+      match /deadlines/{deadlineId} {
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid) && isValidId(deadlineId) && isValidDeadline(incoming());
+      }
+
+      // -------------------------------------------------------------
+      // 4. USER TIMETABLE SUBCOLLECTION
+      // -------------------------------------------------------------
+      match /timetable/{timetableId} {
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid) && isValidId(timetableId) && isValidTimetable(incoming());
+      }
+
+      // -------------------------------------------------------------
+      // 4b. USER EXAMS SUBCOLLECTION
+      // -------------------------------------------------------------
+      match /exams/{examId} {
+        allow read, write: if isOwner(uid) && isValidId(examId);
+      }
+
+      // -------------------------------------------------------------
+      // 4c. USER CALENDAR EVENTS SUBCOLLECTION
+      // -------------------------------------------------------------
+      match /events/{eventId} {
+        allow read, write: if isOwner(uid) && isValidId(eventId);
+      }
+
+      // -------------------------------------------------------------
+      // 5. USER SETTINGS SUBCOLLECTION
+      // -------------------------------------------------------------
+      match /settings/{settingId} {
+        allow read, write: if isOwner(uid) && isValidId(settingId);
+      }
+
+      // -------------------------------------------------------------
+      // 6. USER SOURCES (UPLOADED NOTICES / PDF METADATA)
+      // -------------------------------------------------------------
+      match /sources/{sourceId} {
+        allow read, write: if isOwner(uid) && isValidId(sourceId);
+      }
+
+      // -------------------------------------------------------------
+      // 7. USER NOTIFICATION TOKENS
+      // -------------------------------------------------------------
+      match /notificationTokens/{tokenId} {
+        allow read, write: if isOwner(uid) && isValidId(tokenId);
+      }
+
+      // -------------------------------------------------------------
+      // 8. USER DAILY PLANS SUBCOLLECTION
+      // -------------------------------------------------------------
+      match /dailyPlans/{planId} {
+        allow read, write: if isOwner(uid) && isValidId(planId);
+      }
+    }
+  }
+}
