@@ -258,6 +258,51 @@ export function safeParseJson<T = any>(rawText: string): T {
     } as unknown as T;
   }
 
+  // Strategy 5: Parse plain text / markdown response into structured items
+  const lines = rawText
+    .split(/\r?\n/)
+    .map((l) => l.trim().replace(/^[*#\-\d\s.:>]+/, "").trim())
+    .filter((l) => l.length >= 4 && !l.startsWith("{") && !l.startsWith("}") && !l.toLowerCase().includes("json"));
+
+  if (lines.length > 0) {
+    const textObjects = lines.slice(0, 10).map((line) => {
+      const isNextClass = line.toLowerCase().includes("next class") || line.toLowerCase().includes("next lab");
+      let explicitDueDate: string | null = null;
+      let hasExplicitDate = false;
+
+      const isoMatch = line.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+      if (isoMatch) {
+        explicitDueDate = isoMatch[0];
+        hasExplicitDate = true;
+      }
+
+      return {
+        taskName: line.slice(0, 100),
+        subject: "Academic Notice",
+        hasExplicitDate,
+        explicitDueDate,
+        explicitDueDayOfWeek: null,
+        isRelativeClassMention: isNextClass,
+        dueTime: null,
+        importance: "MEDIUM",
+        description: line,
+        confidenceLevel: "MEDIUM",
+        geminiReasoning: "Extracted from notice text.",
+        sourceType: "CLASS_NOTICE",
+        isDateAmbiguous: !hasExplicitDate && !isNextClass,
+        ambiguityNote: hasExplicitDate || isNextClass ? null : "No explicit date specified in notice.",
+        notes: null,
+      };
+    });
+
+    return {
+      deadlines: textObjects,
+      entries: textObjects,
+      exams: textObjects,
+      blocks: textObjects,
+    } as unknown as T;
+  }
+
   throw new AIError({
     message: "Unable to parse structured schedule data from the model response.",
     code: "MALFORMED_OUTPUT",

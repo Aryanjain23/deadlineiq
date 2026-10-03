@@ -1,4 +1,5 @@
 import { useState, useRef, type DragEvent, type ChangeEvent } from "react";
+import { processFileForAi } from "@/lib/fileProcessing";
 import {
   X,
   Upload,
@@ -91,7 +92,7 @@ export default function AiTimetableImportModal({
     onClose();
   };
 
-  const handleFileSelect = (file: File) => {
+  const handleFileSelect = async (file: File) => {
     setErrorMessage(null);
 
     const validMimes = [
@@ -102,7 +103,7 @@ export default function AiTimetableImportModal({
       "application/pdf",
     ];
 
-    if (!validMimes.includes(file.type.toLowerCase())) {
+    if (!validMimes.includes(file.type.toLowerCase()) && !file.name.toLowerCase().endsWith(".pdf")) {
       setErrorMessage("Please upload a PDF, PNG, JPG, or WebP timetable document.");
       return;
     }
@@ -112,20 +113,17 @@ export default function AiTimetableImportModal({
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const base64 = reader.result as string;
+    try {
+      const processed = await processFileForAi(file);
       setSelectedFile({
         name: file.name,
         size: file.size,
-        mimeType: file.type,
-        base64,
+        mimeType: processed.mimeType,
+        base64: processed.base64,
       });
-    };
-    reader.onerror = () => {
-      setErrorMessage("Failed to read file. Please try again or paste the text.");
-    };
-    reader.readAsDataURL(file);
+    } catch (err: any) {
+      setErrorMessage(err.message || "Failed to process file. Please try again or paste the text.");
+    }
   };
 
   const handleDragOver = (e: DragEvent<HTMLDivElement>) => {

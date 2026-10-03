@@ -1,12 +1,24 @@
 import zlib from "zlib";
-import { createRequire } from "module";
 
 let pdfParseFn: any = null;
-try {
-  const require = createRequire(import.meta.url);
-  pdfParseFn = require("pdf-parse");
-} catch {
-  // Fallback to internal extractor if pdf-parse is not available
+let pdfParseAttempted = false;
+
+async function getPdfParse() {
+  if (pdfParseAttempted) return pdfParseFn;
+  pdfParseAttempted = true;
+  try {
+    const mod = await import("pdf-parse");
+    let fn = (mod as any).default || mod;
+    if (typeof fn !== "function" && fn && typeof (fn as any).pdfParse === "function") {
+      fn = (fn as any).pdfParse;
+    }
+    if (typeof fn === "function") {
+      pdfParseFn = fn;
+    }
+  } catch {
+    pdfParseFn = null;
+  }
+  return pdfParseFn;
 }
 
 /**
@@ -32,9 +44,10 @@ export async function extractTextFromPdf(pdfBase64OrBuffer: string | Buffer): Pr
     }
 
     // 1. Try pdf-parse if loaded
-    if (pdfParseFn && typeof pdfParseFn === "function") {
+    const parser = await getPdfParse();
+    if (parser && typeof parser === "function") {
       try {
-        const data = await pdfParseFn(buffer, { max: 15 });
+        const data = await parser(buffer, { max: 15 });
         if (data && typeof data.text === "string" && data.text.trim().length > 0) {
           return cleanPdfText(data.text);
         }

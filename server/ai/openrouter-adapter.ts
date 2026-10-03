@@ -211,75 +211,94 @@ export class OpenRouterProviderAdapter implements AIProviderAdapter {
     let lastError: AIError | null = null;
 
     for (const model of candidateModels) {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-      try {
-        const bodyPayload: any = {
+      // Try first with standard payload, and retry without response_format if provider rejects json_object parameter
+      const payloadsToTry: any[] = [
+        {
           model,
           messages,
           temperature: 0.2,
           max_tokens: 3000,
-        };
+        },
+      ];
 
-        // Some models support json_object mode
-        if (model.includes("gemini") || model.includes("qwen") || model.includes("mistral")) {
-          bodyPayload.response_format = { type: "json_object" };
-        }
-
-        const response = await fetch(OPENROUTER_ENDPOINT, {
-          method: "POST",
-          signal: controller.signal,
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${apiKey}`,
-            "HTTP-Referer": "https://deadlineiq.internal",
-            "X-Title": "DeadlineIQ",
-          },
-          body: JSON.stringify(bodyPayload),
+      // Add response_format option as secondary or primary
+      if (model.includes("gemini") || model.includes("qwen") || model.includes("mistral")) {
+        payloadsToTry.unshift({
+          ...payloadsToTry[0],
+          response_format: { type: "json_object" },
         });
+      }
 
-        clearTimeout(timer);
+      for (const bodyPayload of payloadsToTry) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
-        if (!response.ok) {
-          const errText = await response.text();
-          let parsedError: any = null;
-          try {
-            parsedError = JSON.parse(errText);
-          } catch {}
-
-          const errorMsg =
-            parsedError?.error?.message ||
-            parsedError?.message ||
-            `OpenRouter HTTP ${response.status}: ${errText.slice(0, 150)}`;
-
-          throw formatOpenRouterError(new Error(errorMsg), response.status);
-        }
-
-        const data = await response.json();
-        const content = data?.choices?.[0]?.message?.content;
-
-        if (!content || typeof content !== "string" || !content.trim()) {
-          throw new AIError({
-            message: "OpenRouter returned an empty response.",
-            code: "MALFORMED_OUTPUT",
-            provider: "openrouter",
-            isRetryable: true,
+        try {
+          const response = await fetch(OPENROUTER_ENDPOINT, {
+            method: "POST",
+            signal: controller.signal,
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${apiKey}`,
+              "HTTP-Referer": "https://deadlineiq.internal",
+              "X-Title": "DeadlineIQ",
+            },
+            body: JSON.stringify(bodyPayload),
           });
+
+          clearTimeout(timer);
+
+          if (!response.ok) {
+            const errText = await response.text();
+            let parsedError: any = null;
+            try {
+              parsedError = JSON.parse(errText);
+            } catch {}
+
+            const errorMsg =
+              parsedError?.error?.message ||
+              parsedError?.message ||
+              `OpenRouter HTTP ${response.status}: ${errText.slice(0, 150)}`;
+
+            // If response_format caused an issue (HTTP 400 or 422), continue to next payload attempt without response_format
+            if ((response.status === 400 || response.status === 422) && bodyPayload.response_format) {
+              console.warn(`[OpenRouter] Model ${model} rejected response_format, retrying without json_object mode...`);
+              continue;
+            }
+
+            throw formatOpenRouterError(new Error(errorMsg), response.status);
+          }
+
+          const data = await response.json();
+          const content = data?.choices?.[0]?.message?.content;
+
+          if (!content || typeof content !== "string" || !content.trim()) {
+            throw new AIError({
+              message: "OpenRouter returned an empty response.",
+              code: "MALFORMED_OUTPUT",
+              provider: "openrouter",
+              isRetryable: true,
+            });
+          }
+
+          return { text: content.trim(), model };
+        } catch (err: any) {
+          clearTimeout(timer);
+          const formatted = formatOpenRouterError(err);
+          lastError = formatted;
+
+          if (formatted.code === "AUTHENTICATION_FAILED") {
+            throw formatted;
+          }
+
+          // If we have another payload variation (e.g. without response_format), try that before moving to next model
+          if (bodyPayload.response_format && (formatted.status === 400 || formatted.status === 422)) {
+            continue;
+          }
+
+          console.log(`[OpenRouter] Model ${model} unavailable, trying next candidate:`, formatted.message);
+          break; // Move to next model candidate
         }
-
-        return { text: content.trim(), model };
-      } catch (err: any) {
-        clearTimeout(timer);
-        const formatted = formatOpenRouterError(err);
-        lastError = formatted;
-
-        if (formatted.code === "AUTHENTICATION_FAILED") {
-          throw formatted;
-        }
-
-        console.log(`[OpenRouter] Model ${model} unavailable, trying next candidate:`, formatted.message);
-        await new Promise((r) => setTimeout(r, 100));
       }
     }
 

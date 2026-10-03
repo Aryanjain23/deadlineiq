@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo, type DragEvent, type ChangeEvent } from "react";
+import { processFileForAi } from "@/lib/fileProcessing";
 import {
   X,
   Upload,
@@ -262,7 +263,7 @@ export default function AiExtractModal({
     setIsDragging(false);
   };
 
-  const processFile = (file: File) => {
+  const processFile = async (file: File) => {
     setErrorMessage(null);
     setValidationNotice(null);
     setSaveSuccessMessage(null);
@@ -294,16 +295,14 @@ export default function AiExtractModal({
     setSelectedFile(file);
     setCandidates([]);
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      setFileBase64(reader.result as string);
-    };
-    reader.onerror = () => {
-      setErrorMessage("The selected file could not be read. Please try selecting the file again.");
+    try {
+      const processed = await processFileForAi(file);
+      setFileBase64(processed.base64);
+    } catch (err: any) {
+      setErrorMessage(err.message || "The selected file could not be processed. Please try selecting another file.");
       setSelectedFile(null);
       setFileBase64(null);
-    };
-    reader.readAsDataURL(file);
+    }
   };
 
   const handleDrop = (e: DragEvent<HTMLDivElement>) => {
