@@ -21,11 +21,11 @@ export function getAdminApp(): App | null {
     let projectId =
       process.env.VITE_FIREBASE_PROJECT_ID ||
       process.env.FIREBASE_PROJECT_ID ||
-      "gen-lang-client-0280963417";
+      "deadlineiq-3a3b5";
     let storageBucket =
       process.env.VITE_FIREBASE_STORAGE_BUCKET ||
       process.env.FIREBASE_STORAGE_BUCKET ||
-      "gen-lang-client-0280963417.firebasestorage.app";
+      "deadlineiq-3a3b5.firebasestorage.app";
 
     if (fs.existsSync(configPath)) {
       try {
