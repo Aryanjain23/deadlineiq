@@ -3,6 +3,7 @@ export interface AuthUser {
   usn: string;
   name: string;
   email?: string | null;
+  phoneNumber?: string | null;
   photoURL?: string | null;
   isFirebaseUser?: boolean;
 }

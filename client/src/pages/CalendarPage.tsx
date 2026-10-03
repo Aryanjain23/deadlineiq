@@ -19,6 +19,7 @@ import {
   AlertTriangle,
   X,
   ExternalLink,
+  LayoutDashboard,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -510,35 +511,61 @@ export default function CalendarPage() {
 
       {/* Navigation Header */}
       <header className="relative z-20 w-full border-b border-border bg-surface/85 backdrop-blur-2xl shadow-sm dark:shadow-[0_4px_30px_rgba(0,0,0,0.5)]">
-        <div className="max-w-[1376px] mx-auto px-4 sm:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-4">
+        <div className="max-w-[1376px] mx-auto px-3 sm:px-6 md:px-8 h-16 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 sm:gap-4">
             <Link
               href="/dashboard"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border bg-surface hover:bg-surface-elevated text-xs font-mono text-text-secondary hover:text-text-primary transition-colors shadow-xs"
+              className="h-9 inline-flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 rounded-full border border-slate-200/85 dark:border-border bg-white dark:bg-surface hover:bg-slate-50 dark:hover:bg-surface-elevated text-xs font-mono text-slate-700 dark:text-text-secondary hover:text-slate-900 dark:hover:text-text-primary transition-all shadow-xs active:scale-95 flex-shrink-0"
+              title="Return to Dashboard"
             >
-              <ArrowLeft size={13} />
-              <span>Dashboard</span>
+              <span className="w-5 h-5 flex items-center justify-center flex-shrink-0" aria-hidden="true">
+                <ArrowLeft size={16} strokeWidth={1.8} />
+              </span>
+              <span className="hidden xs:inline">Dashboard</span>
             </Link>
 
             <div className="h-4 w-[1px] bg-border hidden sm:block" />
 
             <div className="flex items-center gap-2">
-              <CalendarDays size={18} className="text-[#0284c7] dark:text-[#76d8fb]" />
-              <h1 className="text-base sm:text-lg font-semibold text-text-primary tracking-tight font-['Space_Grotesk',sans-serif]">
+              <span className="w-5 h-5 flex items-center justify-center flex-shrink-0" aria-hidden="true">
+                <CalendarDays size={18} strokeWidth={1.8} className="text-[#0284c7] dark:text-[#76d8fb]" />
+              </span>
+              <h1 className="text-sm sm:text-lg font-semibold text-text-primary tracking-tight font-['Space_Grotesk',sans-serif]">
                 Calendar
               </h1>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-1.5 sm:gap-2.5 flex-shrink-0">
             {/* Theme Toggle */}
-            <ThemeToggle />
+            <ThemeToggle className="h-9" />
+
+            {/* Account / Profile Link */}
+            <Link
+              href="/account"
+              className="h-9 inline-flex items-center gap-2 px-3 rounded-full border border-slate-200/85 dark:border-border bg-white dark:bg-surface hover:bg-slate-50 dark:hover:bg-surface-elevated hover:border-blue-300 dark:hover:border-[#76d8fb]/40 text-xs font-mono text-slate-700 dark:text-text-secondary hover:text-slate-900 dark:hover:text-white transition-all cursor-pointer shadow-xs active:scale-95 flex-shrink-0"
+              title="Open Account Profile & Settings"
+            >
+              {currentUser?.photoURL ? (
+                <img
+                  src={currentUser.photoURL}
+                  alt={currentUser.name || "User"}
+                  className="w-4 h-4 rounded-full object-cover border border-blue-400 dark:border-[#76d8fb]/40"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <User size={14} className="text-blue-600 dark:text-[#76d8fb]" />
+              )}
+              <span className="hidden sm:inline font-medium truncate max-w-[110px]">
+                {currentUser?.name || "Profile"}
+              </span>
+            </Link>
 
             {/* Google Calendar Connect/Status Button */}
             {googleMeta.isConnected ? (
               <button
                 onClick={() => setIsGoogleModalOpen(true)}
-                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-[#4285F4]/30 bg-[#4285F4]/10 hover:bg-[#4285F4]/20 text-xs font-mono text-sky-700 dark:text-[#93bbf8] transition-all cursor-pointer shadow-[0_0_12px_rgba(66,133,244,0.15)]"
+                className="hidden sm:inline-flex h-9 items-center gap-2 px-3.5 rounded-full border border-[#4285F4]/30 bg-[#4285F4]/10 hover:bg-[#4285F4]/20 text-xs font-mono text-sky-700 dark:text-[#93bbf8] transition-all cursor-pointer shadow-[0_0_12px_rgba(66,133,244,0.15)] flex-shrink-0"
                 title="Google Calendar connected — click to manage or sync"
               >
                 <span
@@ -548,8 +575,7 @@ export default function CalendarPage() {
                       : "bg-[#059669] dark:bg-[#75d5b0]"
                   }`}
                 />
-                <span className="hidden sm:inline">Google Calendar</span>
-                <span className="sm:hidden">G-Cal</span>
+                <span>Google Calendar</span>
                 <span className="text-[10px] opacity-75">
                   {googleSyncStatus === "syncing" ? "Syncing..." : "Connected"}
                 </span>
@@ -557,7 +583,7 @@ export default function CalendarPage() {
             ) : (
               <button
                 onClick={handleConnectGoogleCalendar}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border bg-surface hover:bg-surface-elevated hover:border-[#4285F4]/40 text-xs font-mono text-text-secondary hover:text-text-primary transition-all cursor-pointer"
+                className="hidden lg:inline-flex h-9 items-center gap-2 px-3.5 rounded-full border border-slate-200/85 dark:border-border bg-white dark:bg-surface hover:bg-slate-50 dark:hover:bg-surface-elevated hover:border-[#4285F4]/40 text-xs font-mono text-slate-700 dark:text-text-secondary hover:text-slate-900 dark:hover:text-text-primary transition-all cursor-pointer flex-shrink-0 shadow-xs"
                 title="Connect Google Calendar to sync events"
               >
                 <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none">
@@ -571,19 +597,35 @@ export default function CalendarPage() {
               </button>
             )}
 
+            {/* My Timetable Button */}
             <button
               onClick={() => setIsTimetableModalOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border bg-surface hover:bg-surface-elevated text-xs font-mono text-text-secondary hover:text-text-primary transition-colors"
+              className="hidden md:inline-flex h-9 items-center gap-2 px-3.5 rounded-full border border-slate-200/85 dark:border-border bg-white dark:bg-surface hover:bg-slate-50 dark:hover:bg-surface-elevated text-xs font-mono text-slate-700 dark:text-text-secondary hover:text-slate-900 dark:hover:text-text-primary transition-all cursor-pointer shadow-xs active:scale-95 flex-shrink-0"
+              title="Open Weekly Timetable"
             >
-              <CalendarIcon size={12} className="text-[#0284c7] dark:text-[#76d8fb]" />
-              <span className="hidden sm:inline">My Timetable</span>
+              <span className="w-5 h-5 flex items-center justify-center flex-shrink-0" aria-hidden="true">
+                <CalendarIcon size={16} strokeWidth={1.8} className="text-[#0284c7] dark:text-[#76d8fb]" />
+              </span>
+              <span>My Timetable</span>
             </button>
+
+            {/* My Exams Button */}
+            <Link
+              href="/dashboard?modal=exams"
+              className="hidden md:inline-flex h-9 items-center gap-2 px-3.5 rounded-full border border-slate-200/85 dark:border-border bg-white dark:bg-surface hover:bg-slate-50 dark:hover:bg-surface-elevated text-xs font-mono text-slate-700 dark:text-text-secondary hover:text-slate-900 dark:hover:text-text-primary transition-all cursor-pointer shadow-xs active:scale-95 flex-shrink-0"
+              title="Open Exam Schedule"
+            >
+              <span className="w-5 h-5 flex items-center justify-center flex-shrink-0" aria-hidden="true">
+                <GraduationCap size={16} strokeWidth={1.8} className="text-amber-600 dark:text-[#fbaf72]" />
+              </span>
+              <span>My Exams</span>
+            </Link>
 
             <button
               onClick={() => openNewEventModal()}
-              className="inline-flex items-center gap-2 px-4 py-1.5 rounded-xl border border-primary/40 bg-gradient-to-r from-sky-500 to-sky-600 dark:from-[#8be0f8] dark:to-[#60caea] hover:brightness-105 text-white dark:text-[#061520] font-semibold text-xs transition-all shadow-xs active:scale-95 cursor-pointer"
+              className="h-9 inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 rounded-xl border border-primary/40 bg-gradient-to-r from-sky-500 to-sky-600 dark:from-[#8be0f8] dark:to-[#60caea] hover:brightness-105 text-white dark:text-[#061520] font-semibold text-xs transition-all shadow-xs active:scale-95 cursor-pointer flex-shrink-0"
             >
-              <Plus size={14} />
+              <Plus size={15} />
               <span>Add Event</span>
             </button>
           </div>
@@ -591,7 +633,7 @@ export default function CalendarPage() {
       </header>
 
       {/* Main Content Area */}
-      <main className="relative z-10 flex-1 max-w-[1376px] w-full mx-auto px-4 sm:px-8 py-6 space-y-5">
+      <main className="relative z-10 flex-1 max-w-[1376px] w-full mx-auto px-4 sm:px-8 pt-6 pb-28 md:py-6 space-y-5">
         
         {/* Non-intrusive Google Calendar Status / Error Banner */}
         {googleError && googleMeta.isConnected && (
@@ -1265,6 +1307,69 @@ export default function CalendarPage() {
         )}
 
       </main>
+
+      {/* ================================================== */}
+      {/* MOBILE BOTTOM NAVIGATION BAR                       */}
+      {/* ================================================== */}
+      <nav
+        aria-label="Mobile Navigation"
+        className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-[#faf8f5]/95 dark:bg-[#0c101a]/95 backdrop-blur-xl border-t border-slate-200/80 dark:border-white/[0.08] shadow-[0_-4px_20px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_25px_rgba(0,0,0,0.4)] pb-[max(env(safe-area-inset-bottom),8px)] pt-1.5 px-3 transition-colors"
+      >
+        <div className="grid grid-cols-4 items-center gap-1 max-w-md mx-auto">
+          {/* 1. Home / Dashboard */}
+          <Link
+            href="/dashboard"
+            className="flex flex-col items-center justify-center min-h-[48px] py-1 px-2 rounded-xl text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-all cursor-pointer active:scale-95 group"
+          >
+            <span className="w-5 h-5 flex items-center justify-center flex-shrink-0" aria-hidden="true">
+              <LayoutDashboard size={18} strokeWidth={1.8} />
+            </span>
+            <span className="text-[10px] font-medium tracking-tight mt-0.5">Home</span>
+          </Link>
+
+          {/* 2. My Timetable */}
+          <button
+            type="button"
+            onClick={() => setIsTimetableModalOpen(true)}
+            className="flex flex-col items-center justify-center min-h-[48px] py-1 px-2 rounded-xl text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-all cursor-pointer active:scale-95 group"
+          >
+            <span className="w-5 h-5 flex items-center justify-center flex-shrink-0" aria-hidden="true">
+              <CalendarIcon size={18} strokeWidth={1.8} className="text-[#0284c7] dark:text-[#76d8fb]" />
+            </span>
+            <span className="text-[10px] font-medium tracking-tight mt-0.5">Timetable</span>
+          </button>
+
+          {/* 3. My Exams */}
+          <Link
+            href="/dashboard?modal=exams"
+            className="flex flex-col items-center justify-center min-h-[48px] py-1 px-2 rounded-xl text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-all cursor-pointer active:scale-95 group relative"
+          >
+            <span className="w-5 h-5 flex items-center justify-center flex-shrink-0 relative" aria-hidden="true">
+              <GraduationCap size={18} strokeWidth={1.8} className="text-amber-600 dark:text-[#fbaf72]" />
+            </span>
+            <span className="text-[10px] font-medium tracking-tight mt-0.5">Exams</span>
+          </Link>
+
+          {/* 4. Calendar (Active) */}
+          <button
+            type="button"
+            onClick={() => {
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }}
+            className="flex flex-col items-center justify-center min-h-[48px] py-1 px-2 rounded-xl text-purple-600 dark:text-[#a895ff] transition-all cursor-pointer active:scale-95 group relative"
+          >
+            <span className="w-5 h-5 flex items-center justify-center flex-shrink-0 relative" aria-hidden="true">
+              <CalendarDays size={18} strokeWidth={2} className="text-[#7c3aed] dark:text-[#a895ff]" />
+              {events.length > 0 && (
+                <span className="absolute -top-1 -right-2 px-1 py-0.2 rounded-full text-[8px] font-mono font-bold bg-purple-500 text-white leading-none">
+                  {events.length}
+                </span>
+              )}
+            </span>
+            <span className="text-[10px] font-medium tracking-tight mt-0.5">Calendar</span>
+          </button>
+        </div>
+      </nav>
 
       {/* Event Add/Edit Modal */}
       <EventModal

@@ -33,7 +33,7 @@ service cloud.firestore {
     function isValidUser(data, uid) {
       return data.uid == uid &&
              data.displayName is string && data.displayName.size() > 0 && data.displayName.size() <= 120 &&
-             data.usn is string && data.usn.size() > 0 && data.usn.size() <= 30 &&
+             (!('usn' in data) || data.usn == null || (data.usn is string && data.usn.size() <= 60)) &&
              (!('email' in data) || data.email == null || (data.email is string && data.email.size() <= 256));
     }
 
@@ -70,8 +70,8 @@ service cloud.firestore {
     match /registeredUsers/{emailKey} {
       allow get: if true;
       allow list: if false;
-      allow create, update: if isSignedIn();
-      allow delete: if isSignedIn();
+      allow create, update: if isSignedIn() && incoming().uid == request.auth.uid;
+      allow delete: if isSignedIn() && existing().uid == request.auth.uid;
     }
 
     // ===============================================================
@@ -79,24 +79,20 @@ service cloud.firestore {
     // Strict isolation: users can only read and write their own profile
     // ===============================================================
     match /users/{uid} {
-      allow read, delete: if isOwner(uid);
-      allow create: if isOwner(uid) && isValidUser(incoming(), uid);
-      allow update: if isOwner(uid) && isValidUser(incoming(), uid);
+      allow read, write: if isOwner(uid);
 
       // -------------------------------------------------------------
       // 3. USER DEADLINES SUBCOLLECTION
       // -------------------------------------------------------------
       match /deadlines/{deadlineId} {
-        allow read, delete: if isOwner(uid);
-        allow create, update: if isOwner(uid) && isValidId(deadlineId) && isValidDeadline(incoming());
+        allow read, write: if isOwner(uid) && isValidId(deadlineId);
       }
 
       // -------------------------------------------------------------
       // 4. USER TIMETABLE SUBCOLLECTION
       // -------------------------------------------------------------
       match /timetable/{timetableId} {
-        allow read, delete: if isOwner(uid);
-        allow create, update: if isOwner(uid) && isValidId(timetableId) && isValidTimetable(incoming());
+        allow read, write: if isOwner(uid) && isValidId(timetableId);
       }
 
       // -------------------------------------------------------------

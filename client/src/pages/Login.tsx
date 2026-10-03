@@ -5,8 +5,7 @@ import {
   AlertCircle,
   ArrowLeft,
   ArrowRight,
-  ArrowUpRight,
-  BookOpen,
+  Calendar,
   CalendarDays,
   Check,
   CheckCircle2,
@@ -15,22 +14,17 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
-  GraduationCap,
   KeyRound,
   LayoutGrid,
   Loader2,
   Lock,
   Mail,
   ShieldAlert,
-  ShieldCheck,
   Sparkles,
-  Target,
   User as UserIcon,
   X,
-  Zap,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import { DEMO_CREDENTIALS } from "@/lib/auth";
 import {
   getReadableFirebaseErrorMessage,
   isUnauthorizedDomainError,
@@ -83,21 +77,17 @@ export default function Login() {
   const {
     user,
     isLoading: authLoading,
-    isFirebaseActive,
     loginWithGoogle,
     signUpWithEmail,
     loginWithEmail,
     resetPassword,
-    loginWithDemo,
   } = useAuth();
 
   const [mode, setMode] = useState<AuthMode>("signin");
-  const [emailOrUsn, setEmailOrUsn] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
-  const [usn, setUsn] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
@@ -117,24 +107,6 @@ export default function Login() {
       setLocation("/dashboard");
     }
   }, [user, authLoading, setLocation]);
-
-  const handleFillDemo = () => {
-    setMode("signin");
-    setEmailOrUsn(DEMO_CREDENTIALS.usn);
-    setPassword(DEMO_CREDENTIALS.password);
-    setError(null);
-    setSuccessMessage(null);
-    setUnauthorizedDomain(null);
-  };
-
-  const handleInstantDemoLogin = () => {
-    setError(null);
-    setUnauthorizedDomain(null);
-    const ok = loginWithDemo(DEMO_CREDENTIALS.usn, DEMO_CREDENTIALS.password);
-    if (ok) {
-      setLocation("/dashboard");
-    }
-  };
 
   const handleCopyDomain = async () => {
     if (!unauthorizedDomain) return;
@@ -169,7 +141,6 @@ export default function Login() {
       }
     } catch (err: any) {
       if (isAuthCancelledError(err)) {
-        // User closed or cancelled popup; cleanly return to screen without scary error
         return;
       }
 
@@ -193,9 +164,9 @@ export default function Login() {
     setError(null);
     setSuccessMessage(null);
 
-    const identifier = emailOrUsn.trim();
-    if (!identifier) {
-      setError("Please enter your academic email or USN.");
+    const cleanEmail = email.trim();
+    if (!cleanEmail || !cleanEmail.includes("@")) {
+      setError("Please enter a valid email address.");
       return;
     }
     if (!password) {
@@ -206,34 +177,7 @@ export default function Login() {
     setIsSubmitting(true);
 
     try {
-      // 1. Check if identifier is the demo credentials
-      if (
-        identifier.toUpperCase() === DEMO_CREDENTIALS.usn.toUpperCase() &&
-        password === DEMO_CREDENTIALS.password
-      ) {
-        const ok = loginWithDemo(identifier, password);
-        if (ok) {
-          setLocation("/dashboard");
-          return;
-        }
-      }
-
-      // 2. If it's an email address or Firebase is active, try Firebase Auth
-      const isEmail = identifier.includes("@");
-      if (isFirebaseActive && isEmail) {
-        await loginWithEmail(identifier, password);
-        setLocation("/dashboard");
-        return;
-      }
-
-      // 3. If identifier is USN and demo didn't match, or Firebase isn't configured
-      if (!isFirebaseActive && !isEmail) {
-        setError("Invalid USN or password. Use demo credentials or sign up with an academic email.");
-        return;
-      }
-
-      // Try email login with identifier
-      await loginWithEmail(identifier, password);
+      await loginWithEmail(cleanEmail, password);
       setLocation("/dashboard");
     } catch (err: any) {
       console.warn("Login failure:", err?.message || err);
@@ -250,14 +194,13 @@ export default function Login() {
 
     const cleanName = displayName.trim();
     const cleanEmail = email.trim();
-    const cleanUsn = usn.trim();
 
     if (!cleanName) {
       setError("Please enter your full name.");
       return;
     }
     if (!cleanEmail || !cleanEmail.includes("@") || !cleanEmail.includes(".")) {
-      setError("Please enter a valid academic email address.");
+      setError("Please enter a valid email address.");
       return;
     }
     if (password.length < 6) {
@@ -272,7 +215,7 @@ export default function Login() {
     setIsSubmitting(true);
 
     try {
-      await signUpWithEmail(cleanEmail, password, cleanName, cleanUsn);
+      await signUpWithEmail(cleanEmail, password, cleanName);
       setLocation("/dashboard");
     } catch (err: any) {
       console.warn("Sign up failure:", err?.message || err);
@@ -287,7 +230,7 @@ export default function Login() {
     setError(null);
     setSuccessMessage(null);
 
-    const cleanEmail = email.trim() || emailOrUsn.trim();
+    const cleanEmail = email.trim();
     if (!cleanEmail || !cleanEmail.includes("@")) {
       setError("Please enter the email address associated with your account.");
       return;
@@ -298,7 +241,7 @@ export default function Login() {
     try {
       await resetPassword(cleanEmail);
       setSuccessMessage(
-        `Password reset instructions have been sent to ${cleanEmail}. Check your inbox and spam folder.`
+        `Password reset instructions have been sent to ${cleanEmail}. Please check your inbox and spam folder.`
       );
     } catch (err: any) {
       console.warn("Password reset failure:", err?.message || err);
@@ -315,7 +258,7 @@ export default function Login() {
       transition={{ duration: 0.35, ease: [0.23, 1, 0.32, 1] }}
       className="min-h-screen bg-[#080a10] text-[#f4f5f7] flex flex-col selection:bg-[#8bdcf7] selection:text-[#061018] relative overflow-hidden"
     >
-      {/* Background atmosphere lighting & subtle grid */}
+      {/* Subtle architectural atmosphere */}
       <div
         className="pointer-events-none absolute inset-0 z-0 opacity-70"
         style={{
@@ -329,26 +272,16 @@ export default function Login() {
         }}
       />
 
-      {/* Decorative Orbits */}
-      <div
-        className="pointer-events-none absolute -top-40 -left-40 w-[600px] h-[600px] rounded-full border border-[rgba(118,216,251,0.08)] opacity-60"
-        aria-hidden="true"
-      />
-      <div
-        className="pointer-events-none absolute -bottom-40 right-[-10%] w-[700px] h-[700px] rounded-full border border-[rgba(168,149,255,0.06)] opacity-50"
-        aria-hidden="true"
-      />
-
       {/* Top Bar */}
       <header className="relative z-10 w-full max-w-[1376px] mx-auto px-6 md:px-12 py-6 flex items-center justify-between">
         <Logo />
 
         <Link
           href="/"
-          className="inline-flex items-center gap-2 text-xs font-medium text-[#929aaa] hover:text-white transition-colors duration-180 py-2 px-3 rounded-md hover:bg-white/[0.04] border border-transparent hover:border-[#242936]"
+          className="inline-flex items-center gap-2 text-xs font-medium text-[#929aaa] hover:text-white transition-colors duration-180 py-2 px-3.5 rounded-lg hover:bg-white/[0.04] border border-transparent hover:border-[#242936]"
         >
           <ArrowLeft size={14} className="text-[#76d8fb]" />
-          <span>Back to DeadlineIQ</span>
+          <span>Back to Home</span>
         </Link>
       </header>
 
@@ -356,41 +289,28 @@ export default function Login() {
       <main className="relative z-10 flex-1 w-full max-w-[1376px] mx-auto px-6 md:px-12 py-4 md:py-8 flex items-center justify-center">
         <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-14 items-center">
           
-          {/* Left Column: Premium Auth Card */}
+          {/* Left Column: Auth Card */}
           <motion.div
             initial={{ opacity: 0, y: 22 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.45, delay: 0.05, ease: [0.23, 1, 0.32, 1] }}
             className="lg:col-span-5 flex flex-col justify-center"
           >
-            <div className="relative rounded-2xl border border-[rgba(210,224,243,0.12)] bg-[#11141d]/85 backdrop-blur-xl p-7 sm:p-9 shadow-[0_24px_70px_rgba(0,0,0,0.55),inset_0_1px_0_rgba(255,255,255,0.05)]">
+            <div className="relative rounded-2xl border border-[rgba(210,224,243,0.12)] bg-[#11141d]/90 backdrop-blur-xl p-7 sm:p-9 shadow-[0_24px_70px_rgba(0,0,0,0.55),inset_0_1px_0_rgba(255,255,255,0.05)]">
               
-              {/* Card top badge */}
-              <div className="flex items-center justify-between mb-4">
-                <div className="inline-flex items-center gap-2 text-[10px] font-mono tracking-wider text-[#8b95a7] uppercase">
-                  <span className="w-2 h-2 rounded-full bg-[#75d5b0]" />
-                  <span>Student Portal · Semester 4</span>
-                </div>
-                {isFirebaseActive && (
-                  <span className="text-[9px] font-mono text-[#76d8fb] bg-[#76d8fb]/10 border border-[#76d8fb]/25 px-2 py-0.5 rounded-full">
-                    Firebase Cloud
-                  </span>
-                )}
-              </div>
-
-              {/* Title & subtitle according to mode */}
+              {/* Title & subtitle */}
               <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-[#f4f5f7] font-['Space_Grotesk',sans-serif]">
-                {mode === "signin" && "Welcome back."}
-                {mode === "signup" && "Create account."}
-                {mode === "forgot" && "Reset password."}
+                {mode === "signin" && "Welcome back"}
+                {mode === "signup" && "Create your account"}
+                {mode === "forgot" && "Reset password"}
               </h1>
               <p className="text-sm text-[#929aaa] mt-2 mb-6 leading-relaxed">
-                {mode === "signin" && "Sign in to manage your schedule and deadlines."}
-                {mode === "signup" && "Set up your student profile and sync your coursework."}
-                {mode === "forgot" && "Enter your email address to receive password reset instructions."}
+                {mode === "signin" && "Sign in to access your timetable, exams, deadlines, and smart daily planner."}
+                {mode === "signup" && "Set up your student profile to automatically organize your academic schedule."}
+                {mode === "forgot" && "Enter your registered email address to receive secure reset instructions."}
               </p>
 
-              {/* Mode Switcher Tabs (Sign In / Create Account) */}
+              {/* Mode Switcher Tabs */}
               {mode !== "forgot" ? (
                 <div className="grid grid-cols-2 p-1 bg-[#090c13] border border-[#202636] rounded-xl mb-6">
                   <button
@@ -441,7 +361,7 @@ export default function Login() {
                 </div>
               )}
 
-              {/* Prominent Google Sign-In button (available in both Sign In and Sign Up modes) */}
+              {/* Google Sign-In */}
               {mode !== "forgot" && (
                 <div className="mb-5">
                   <button
@@ -477,7 +397,7 @@ export default function Login() {
                 </div>
               )}
 
-              {/* Status Banners: Error or Success */}
+              {/* Error or Success Banners */}
               <AnimatePresence>
                 {unauthorizedDomain && (
                   <motion.div
@@ -507,10 +427,10 @@ export default function Login() {
                     </div>
 
                     <p className="text-amber-200/80 leading-relaxed mb-3 text-[11px] sm:text-xs">
-                      Firebase Google Sign-In requires your app's web domain to be added to Authorized Domains in your Firebase console (<strong>{firebaseProjectId}</strong>).
+                      Firebase Google Sign-In requires your app's web domain to be added to Authorized Domains in your Firebase console.
                     </p>
 
-                    {/* Domain Box with 1-Click Copy */}
+                    {/* Domain Box */}
                     <div className="bg-[#0b0906] border border-amber-500/25 rounded-lg p-2 flex items-center justify-between gap-2 mb-3">
                       <code className="font-mono text-[11px] text-amber-200 truncate select-all px-1">
                         {unauthorizedDomain}
@@ -534,8 +454,7 @@ export default function Login() {
                       </button>
                     </div>
 
-                    {/* Action buttons */}
-                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-2 border-t border-amber-500/20">
+                    <div className="pt-2 border-t border-amber-500/20">
                       <a
                         href={`https://console.firebase.google.com/project/${firebaseProjectId}/authentication/settings`}
                         target="_blank"
@@ -545,22 +464,10 @@ export default function Login() {
                         <span>Open Firebase Settings</span>
                         <ExternalLink size={12} />
                       </a>
-
-                      <button
-                        type="button"
-                        onClick={handleInstantDemoLogin}
-                        className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.08] hover:bg-white/[0.14] text-white border border-white/[0.1] font-medium text-xs transition-colors cursor-pointer"
-                      >
-                        <Zap size={13} className="text-[#76d8fb]" />
-                        <span>Instant Access (Demo Student)</span>
-                      </button>
-                    </div>
-
-                    <div className="mt-2.5 text-[10px] text-amber-400/70 font-mono">
-                      Tip: You can also sign in or register with Email &amp; Password below without domain authorization.
                     </div>
                   </motion.div>
                 )}
+
                 {error && !unauthorizedDomain && (
                   <motion.div
                     initial={{ opacity: 0, y: -6 }}
@@ -611,6 +518,7 @@ export default function Login() {
                     )}
                   </motion.div>
                 )}
+
                 {successMessage && (
                   <motion.div
                     initial={{ opacity: 0, y: -6 }}
@@ -624,36 +532,32 @@ export default function Login() {
                 )}
               </AnimatePresence>
 
-              {/* ================================================== */}
-              {/* 1. SIGN IN FORM                                    */}
-              {/* ================================================== */}
+              {/* 1. SIGN IN FORM (Only Email, Password, Remember Session, Sign In) */}
               {mode === "signin" && (
                 <form onSubmit={handleSignInSubmit} className="space-y-4">
-                  {/* Email / USN Field */}
                   <div>
                     <label className="block text-[11px] font-mono tracking-wider text-[#cbd3df] uppercase mb-2">
-                      Academic Email or USN
+                      Email Address
                     </label>
                     <div className="relative">
                       <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#768395]">
                         <Mail size={16} />
                       </span>
                       <input
-                        type="text"
-                        value={emailOrUsn}
+                        type="email"
+                        value={email}
                         onChange={(e) => {
-                          setEmailOrUsn(e.target.value);
+                          setEmail(e.target.value);
                           if (error) setError(null);
                         }}
-                        placeholder="student@nie.ac.in or 4NI25EC023"
-                        autoComplete="username"
+                        placeholder="student@university.edu"
+                        autoComplete="email"
                         required
                         className="w-full bg-[#0a0d14]/90 border border-[#242936] focus:border-[#76d8fb] focus:ring-1 focus:ring-[#76d8fb]/40 rounded-lg pl-10 pr-4 py-3 text-sm text-[#f4f5f7] placeholder-[#606b7d] outline-none transition-all duration-180"
                       />
                     </div>
                   </div>
 
-                  {/* Password Field */}
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <label className="block text-[11px] font-mono tracking-wider text-[#cbd3df] uppercase">
@@ -663,7 +567,6 @@ export default function Login() {
                         type="button"
                         onClick={() => {
                           setMode("forgot");
-                          setEmail(emailOrUsn.includes("@") ? emailOrUsn : "");
                           setError(null);
                           setSuccessMessage(null);
                         }}
@@ -699,7 +602,7 @@ export default function Login() {
                     </div>
                   </div>
 
-                  {/* Remember me option */}
+                  {/* Remember session */}
                   <div className="flex items-center justify-between text-xs text-[#8793a3] pt-0.5">
                     <label className="flex items-center gap-2 cursor-pointer select-none">
                       <input
@@ -710,12 +613,9 @@ export default function Login() {
                       />
                       <span>Remember session</span>
                     </label>
-                    <span className="inline-flex items-center gap-1 font-mono text-[10px] text-[#697484]">
-                      <ShieldCheck size={12} className="text-[#75d5b0]" /> 256-bit safe
-                    </span>
                   </div>
 
-                  {/* Primary Button */}
+                  {/* Primary Submit Button */}
                   <button
                     type="submit"
                     disabled={isSubmitting || authLoading}
@@ -728,37 +628,17 @@ export default function Login() {
                       </>
                     ) : (
                       <>
-                        <span>Enter DeadlineIQ</span>
+                        <span>Sign In</span>
                         <ArrowRight size={16} />
                       </>
                     )}
                   </button>
-
-                  {/* Demo account note */}
-                  <div className="pt-2 text-center">
-                    <div className="inline-flex flex-col items-center gap-1.5 p-2.5 rounded-lg border border-[#242936]/80 bg-[#171b25]/50 w-full">
-                      <div className="text-xs text-[#a0a9b8]">
-                        Demo account available for evaluation
-                      </div>
-                      <button
-                        type="button"
-                        onClick={handleFillDemo}
-                        className="text-[11px] font-mono text-[#76d8fb] hover:text-[#b8ecf8] hover:underline cursor-pointer inline-flex items-center gap-1 transition-colors"
-                      >
-                        <span>Auto-fill demo credentials</span>
-                        <ArrowUpRight size={12} />
-                      </button>
-                    </div>
-                  </div>
                 </form>
               )}
 
-              {/* ================================================== */}
-              {/* 2. SIGN UP / CREATE ACCOUNT FORM                    */}
-              {/* ================================================== */}
+              {/* 2. SIGN UP / CREATE ACCOUNT FORM */}
               {mode === "signup" && (
                 <form onSubmit={handleSignUpSubmit} className="space-y-4">
-                  {/* Full Name */}
                   <div>
                     <label className="block text-[11px] font-mono tracking-wider text-[#cbd3df] uppercase mb-2">
                       Full Name
@@ -774,7 +654,7 @@ export default function Login() {
                           setDisplayName(e.target.value);
                           if (error) setError(null);
                         }}
-                        placeholder="Aryan Babel"
+                        placeholder="Your Name"
                         autoComplete="name"
                         required
                         className="w-full bg-[#0a0d14]/90 border border-[#242936] focus:border-[#76d8fb] focus:ring-1 focus:ring-[#76d8fb]/40 rounded-lg pl-10 pr-4 py-3 text-sm text-[#f4f5f7] placeholder-[#606b7d] outline-none transition-all duration-180"
@@ -782,10 +662,9 @@ export default function Login() {
                     </div>
                   </div>
 
-                  {/* Academic Email */}
                   <div>
                     <label className="block text-[11px] font-mono tracking-wider text-[#cbd3df] uppercase mb-2">
-                      Academic Email
+                      Email Address
                     </label>
                     <div className="relative">
                       <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#768395]">
@@ -798,7 +677,7 @@ export default function Login() {
                           setEmail(e.target.value);
                           if (error) setError(null);
                         }}
-                        placeholder="student@nie.ac.in"
+                        placeholder="student@university.edu"
                         autoComplete="email"
                         required
                         className="w-full bg-[#0a0d14]/90 border border-[#242936] focus:border-[#76d8fb] focus:ring-1 focus:ring-[#76d8fb]/40 rounded-lg pl-10 pr-4 py-3 text-sm text-[#f4f5f7] placeholder-[#606b7d] outline-none transition-all duration-180"
@@ -806,33 +685,6 @@ export default function Login() {
                     </div>
                   </div>
 
-                  {/* USN (University Seat Number) */}
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <label className="block text-[11px] font-mono tracking-wider text-[#cbd3df] uppercase">
-                        University Seat Number (USN)
-                      </label>
-                      <span className="text-[10px] font-mono text-[#768395]">e.g. 4NI25EC023</span>
-                    </div>
-                    <div className="relative">
-                      <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#768395]">
-                        <GraduationCap size={16} />
-                      </span>
-                      <input
-                        type="text"
-                        value={usn}
-                        onChange={(e) => {
-                          setUsn(e.target.value.toUpperCase());
-                          if (error) setError(null);
-                        }}
-                        placeholder="4NI25EC023"
-                        autoComplete="off"
-                        className="w-full bg-[#0a0d14]/90 border border-[#242936] focus:border-[#76d8fb] focus:ring-1 focus:ring-[#76d8fb]/40 rounded-lg pl-10 pr-4 py-3 text-sm text-[#f4f5f7] placeholder-[#606b7d] outline-none transition-all duration-180 uppercase"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Password Field */}
                   <div>
                     <label className="block text-[11px] font-mono tracking-wider text-[#cbd3df] uppercase mb-2">
                       Password (min 6 characters)
@@ -848,7 +700,7 @@ export default function Login() {
                           setPassword(e.target.value);
                           if (error) setError(null);
                         }}
-                        placeholder="Create a strong password"
+                        placeholder="Create a password"
                         autoComplete="new-password"
                         required
                         minLength={6}
@@ -865,7 +717,6 @@ export default function Login() {
                     </div>
                   </div>
 
-                  {/* Confirm Password Field */}
                   <div>
                     <label className="block text-[11px] font-mono tracking-wider text-[#cbd3df] uppercase mb-2">
                       Confirm Password
@@ -898,7 +749,6 @@ export default function Login() {
                     </div>
                   </div>
 
-                  {/* Submit Button */}
                   <button
                     type="submit"
                     disabled={isSubmitting}
@@ -911,7 +761,7 @@ export default function Login() {
                       </>
                     ) : (
                       <>
-                        <span>Create Account & Enter</span>
+                        <span>Create Account</span>
                         <ArrowRight size={16} />
                       </>
                     )}
@@ -919,9 +769,7 @@ export default function Login() {
                 </form>
               )}
 
-              {/* ================================================== */}
-              {/* 3. FORGOT PASSWORD FORM                             */}
-              {/* ================================================== */}
+              {/* 3. FORGOT PASSWORD FORM */}
               {mode === "forgot" && (
                 <form onSubmit={handleForgotPasswordSubmit} className="space-y-4">
                   <div>
@@ -939,7 +787,7 @@ export default function Login() {
                           setEmail(e.target.value);
                           if (error) setError(null);
                         }}
-                        placeholder="student@nie.ac.in"
+                        placeholder="student@university.edu"
                         autoComplete="email"
                         required
                         className="w-full bg-[#0a0d14]/90 border border-[#242936] focus:border-[#76d8fb] focus:ring-1 focus:ring-[#76d8fb]/40 rounded-lg pl-10 pr-4 py-3 text-sm text-[#f4f5f7] placeholder-[#606b7d] outline-none transition-all duration-180"
@@ -987,35 +835,29 @@ export default function Login() {
                   href="/"
                   className="inline-flex items-center gap-1.5 text-xs text-[#8793a3] hover:text-[#dce3ec] transition-colors py-1 cursor-pointer"
                 >
-                  <span>← Back to DeadlineIQ</span>
+                  <span>← Back to Home</span>
                 </Link>
               </div>
 
             </div>
           </motion.div>
 
-          {/* Right Column: Visual Preview of DeadlineIQ Dashboard */}
+          {/* Right Column: Visual Dashboard Overview */}
           <motion.div
             initial={{ opacity: 0, filter: "blur(12px)", scale: 0.97 }}
             animate={{ opacity: 1, filter: "blur(0px)", scale: 1 }}
             transition={{ duration: 0.55, delay: 0.12, ease: [0.23, 1, 0.32, 1] }}
             className="lg:col-span-7 hidden md:block"
-            aria-label="Preview of the DeadlineIQ student planner dashboard"
+            aria-label="Preview of the DeadlineIQ student planner"
           >
             <div className="relative">
-              {/* Glow backdrop behind preview */}
+              {/* Glow backdrop */}
               <div
                 className="absolute -inset-4 rounded-3xl bg-gradient-to-tr from-[#76d8fb]/10 via-[#a895ff]/10 to-transparent blur-2xl -z-10 pointer-events-none"
                 aria-hidden="true"
               />
 
-              {/* Floating ambient badge */}
-              <div className="absolute -top-3 right-6 z-20 px-3 py-1 rounded-full border border-[#76d8fb]/30 bg-[#0f1522]/90 backdrop-blur-md shadow-lg text-[10px] font-mono text-[#86dcff] flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#76d8fb] animate-pulse" />
-                <span>COMMAND VIEW PREVIEW</span>
-              </div>
-
-              {/* Faded/blurred academic dashboard window */}
+              {/* Dashboard visual window */}
               <div className="rounded-xl border border-[rgba(189,220,240,0.19)] bg-gradient-to-br from-[#151a27]/95 to-[#0c0f17]/95 shadow-[0_28px_90px_rgba(0,0,0,0.55),0_0_60px_rgba(69,156,196,0.08)] overflow-hidden select-none pointer-events-none">
                 
                 {/* Topbar */}
@@ -1024,17 +866,10 @@ export default function Login() {
                     <span className="w-4 h-4 rounded border border-[rgba(156,220,240,0.38)] bg-[rgba(95,183,215,0.09)] text-[#b7eafa] flex items-center justify-center text-[9px]">
                       D
                     </span>
-                    <span>deadline<span className="text-[#76d8fb] font-normal">IQ</span></span>
+                    <span>Deadline<span className="text-[#76d8fb] font-normal">IQ</span></span>
                   </div>
                   <div className="flex items-center gap-1.5 text-[10px] font-mono text-[#798497]">
-                    <span>Workspace</span>
-                    <ChevronRight size={10} />
-                    <span>Semester 04</span>
-                  </div>
-                  <div className="flex items-center -space-x-1.5">
-                    <span className="w-5 h-5 rounded-full bg-[#46565d] border border-[#131722] text-[8px] flex items-center justify-center text-white">A</span>
-                    <span className="w-5 h-5 rounded-full bg-[#5e4d65] border border-[#131722] text-[8px] flex items-center justify-center text-white">R</span>
-                    <span className="w-5 h-5 rounded-full bg-[#232b37] border border-[#131722] text-[8px] flex items-center justify-center text-[#a8b1c1]">+</span>
+                    <span>Academic Workspace</span>
                   </div>
                 </div>
 
@@ -1043,37 +878,21 @@ export default function Login() {
                   {/* Mini Sidebar */}
                   <div className="col-span-3 border-r border-[rgba(214,229,247,0.075)] p-3 flex flex-col justify-between bg-[#0e121a]/60">
                     <div className="space-y-1">
-                      <div className="text-[9px] font-mono text-[#647185] tracking-widest px-2 mb-2">
-                        WORKSPACE
-                      </div>
                       <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[11px] text-[#d9eaf0] bg-gradient-to-r from-[rgba(102,180,214,0.15)] to-transparent border-l-2 border-[#77cde8]">
                         <LayoutGrid size={12} className="text-[#76d8fb]" />
-                        <span>Overview</span>
-                      </div>
-                      <div className="flex items-center justify-between px-2.5 py-1.5 rounded-md text-[11px] text-[#8f9aad]">
-                        <span className="flex items-center gap-2">
-                          <CalendarDays size={12} />
-                          <span>Timeline</span>
-                        </span>
-                        <span className="text-[9px] font-mono bg-white/[0.04] px-1 rounded text-[#9ba9bc]">8</span>
+                        <span>Dashboard</span>
                       </div>
                       <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[11px] text-[#8f9aad]">
-                        <BookOpen size={12} />
-                        <span>Courses</span>
+                        <CalendarDays size={12} />
+                        <span>Calendar</span>
                       </div>
                       <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[11px] text-[#8f9aad]">
-                        <Target size={12} />
-                        <span>Focus</span>
+                        <Calendar size={12} />
+                        <span>Timetable</span>
                       </div>
-                    </div>
-
-                    <div className="pt-3 border-t border-[rgba(214,229,247,0.08)] flex items-center gap-2 px-1 text-xs">
-                      <span className="w-6 h-6 rounded-md bg-gradient-to-br from-[#383854] to-[#252c40] border border-[rgba(183,192,238,0.23)] flex items-center justify-center text-[10px] text-[#e1dcff] font-['Space_Grotesk']">
-                        A
-                      </span>
-                      <div className="text-[10px] leading-tight">
-                        <div className="text-[#cdd6e1] font-medium">Aryan Babel</div>
-                        <div className="text-[#758294] text-[8px]">Student plan · Sem 04</div>
+                      <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[11px] text-[#8f9aad]">
+                        <Sparkles size={12} />
+                        <span>Plan My Day</span>
                       </div>
                     </div>
                   </div>
@@ -1083,141 +902,52 @@ export default function Login() {
                     {/* Header */}
                     <div className="flex items-end justify-between border-b border-[rgba(219,230,244,0.06)] pb-3">
                       <div>
-                        <div className="text-[8px] font-mono text-[#768395] tracking-widest">
-                          MONDAY, SEPTEMBER 28
-                        </div>
-                        <h2 className="text-base font-['Space_Grotesk'] font-medium text-[#eff3f7] tracking-tight mt-0.5">
-                          Your week, in focus<span className="text-[#76d8fb]">.</span>
+                        <h2 className="text-base font-['Space_Grotesk'] font-medium text-[#eff3f7] tracking-tight">
+                          Intelligent Academic Planner<span className="text-[#76d8fb]">.</span>
                         </h2>
-                      </div>
-                      <div className="text-[9px] text-[#a6b1c0] bg-white/[0.03] border border-[rgba(210,225,245,0.12)] rounded px-2 py-1 flex items-center gap-1">
-                        <span>This week</span>
-                        <ChevronRight size={10} />
-                      </div>
-                    </div>
-
-                    {/* Stats Row */}
-                    <div className="grid grid-cols-4 gap-2 py-1 border-b border-[rgba(219,230,244,0.06)] pb-3 text-left">
-                      <div>
-                        <span className="block text-[8px] text-[#788394]">Coming up</span>
-                        <b className="text-sm font-['Space_Grotesk'] text-[#e5eaf1]">
-                          08 <small className="text-[9px] text-[#758191] font-normal">items</small>
-                        </b>
-                      </div>
-                      <div>
-                        <span className="block text-[8px] text-[#788394]">Focus time</span>
-                        <b className="text-sm font-['Space_Grotesk'] text-[#e5eaf1]">
-                          6.5 <small className="text-[9px] text-[#758191] font-normal">hrs</small>
-                        </b>
-                      </div>
-                      <div>
-                        <span className="block text-[8px] text-[#788394]">On track</span>
-                        <b className="text-sm font-['Space_Grotesk'] text-[#82d6b7]">
-                          82<small className="text-[9px] font-normal">%</small>
-                        </b>
-                      </div>
-                      <div>
-                        <span className="block text-[8px] text-[#788394] font-mono">WEEKLY LOAD</span>
-                        <div className="h-1 bg-white/10 rounded-full overflow-hidden mt-1.5">
-                          <div className="w-[64%] h-full bg-gradient-to-r from-[#67c7e6] to-[#a594fa] rounded-full" />
-                        </div>
-                        <span className="text-[8px] text-[#83ceb0] block text-right mt-0.5">Moderate</span>
+                        <p className="text-[10px] text-[#8794a5] mt-0.5">
+                          Synced with classes, exams, active deadlines, and calendar events.
+                        </p>
                       </div>
                     </div>
 
-                    {/* Upcoming Deadlines + Calendar Elements */}
-                    <div className="grid grid-cols-12 gap-3 text-left">
-                      {/* Upcoming Deadlines list */}
-                      <div className="col-span-7 space-y-1.5">
-                        <div className="flex items-center justify-between text-[8px] font-mono text-[#8994a5] mb-1">
-                          <span>UPCOMING DEADLINES</span>
-                          <span className="text-[#8bbcd1]">3 due soon</span>
-                        </div>
-
-                        {/* Item 1 */}
-                        <div className="p-2 rounded border border-[rgba(219,230,244,0.08)] bg-white/[0.015] flex items-center gap-2">
-                          <span className="w-1.5 h-1.5 rounded-full bg-[#78d3ed] shadow-[0_0_6px_rgba(120,211,238,0.7)] flex-shrink-0" />
-                          <div className="min-w-0 flex-1">
-                            <div className="text-[10px] font-medium text-[#dce3ec] truncate">
-                              Physics lab record
-                            </div>
-                            <div className="text-[8px] text-[#828d9d]">PHY 204 · Today, 5:00 PM</div>
+                    {/* Features list */}
+                    <div className="space-y-2 text-left">
+                      <div className="p-2.5 rounded-lg border border-[rgba(219,230,244,0.08)] bg-white/[0.015] flex items-center gap-2.5">
+                        <span className="w-2 h-2 rounded-full bg-[#78d3ed] flex-shrink-0" />
+                        <div className="min-w-0 flex-1">
+                          <div className="text-[11px] font-medium text-[#dce3ec]">
+                            Automated Timetable &amp; Exam Extraction
                           </div>
-                          <span className="px-1.5 py-0.5 text-[8px] font-mono rounded border border-[rgba(110,207,233,0.3)] text-[#9fdff1] bg-[rgba(108,190,219,0.1)]">
-                            HIGH
-                          </span>
-                        </div>
-
-                        {/* Item 2 */}
-                        <div className="p-2 rounded border border-[rgba(219,230,244,0.08)] bg-white/[0.015] flex items-center gap-2">
-                          <span className="w-1.5 h-1.5 rounded-full bg-[#af9af7] flex-shrink-0" />
-                          <div className="min-w-0 flex-1">
-                            <div className="text-[10px] font-medium text-[#dce3ec] truncate">
-                              Mathematics set 04
-                            </div>
-                            <div className="text-[8px] text-[#828d9d]">MAT 201 · Oct 1, 11:59 PM</div>
-                          </div>
-                          <span className="px-1.5 py-0.5 text-[8px] font-mono rounded border border-[rgba(173,151,247,0.3)] text-[#b7a6f6] bg-[rgba(151,127,223,0.1)]">
-                            MED
-                          </span>
-                        </div>
-
-                        {/* Item 3 */}
-                        <div className="p-2 rounded border border-[rgba(219,230,244,0.08)] bg-white/[0.015] flex items-center gap-2">
-                          <span className="w-1.5 h-1.5 rounded-full bg-[#81aef5] flex-shrink-0" />
-                          <div className="min-w-0 flex-1">
-                            <div className="text-[10px] font-medium text-[#dce3ec] truncate">
-                              Electronics revision
-                            </div>
-                            <div className="text-[8px] text-[#828d9d]">ECE 210 · Oct 4, 9:00 AM</div>
-                          </div>
-                          <span className="px-1.5 py-0.5 text-[8px] font-mono rounded border border-[rgba(127,175,239,0.25)] text-[#a2bfe9] bg-[rgba(114,151,205,0.08)]">
-                            PLAN
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Calendar snippet */}
-                      <div className="col-span-5 border-l border-[rgba(217,229,244,0.065)] pl-3 space-y-2">
-                        <div className="flex items-center justify-between text-[8px] font-mono text-[#788597]">
-                          <span>SEPTEMBER</span>
-                          <span>WEEK 40</span>
-                        </div>
-                        <div className="grid grid-cols-5 gap-1 text-center font-mono text-[7px] text-[#768193]">
-                          <div>MON<span className="block mt-1 w-4 h-4 mx-auto rounded-full bg-[#8ad8ed] text-[#0d141c] font-bold text-[8px] flex items-center justify-center">28</span></div>
-                          <div>TUE<span className="block mt-1 text-[8px] text-[#cbd3df]">29</span></div>
-                          <div>WED<span className="block mt-1 text-[8px] text-[#cbd3df]">30</span></div>
-                          <div>THU<span className="block mt-1 text-[8px] text-[#cbd3df]">01</span></div>
-                          <div>FRI<span className="block mt-1 text-[8px] text-[#cbd3df]">02</span></div>
-                        </div>
-
-                        <div className="space-y-1.5 pt-1">
-                          <div className="text-[8px] px-1.5 py-1 rounded bg-[rgba(92,180,207,0.12)] border border-[rgba(110,196,222,0.25)] text-[#a8e0ef] truncate">
-                            Lab record submission
-                          </div>
-                          <div className="text-[8px] px-1.5 py-1 rounded bg-[rgba(145,124,206,0.12)] border border-[rgba(175,151,236,0.25)] text-[#c7b6fc] truncate">
-                            Discrete Maths Set
+                          <div className="text-[9px] text-[#828d9d]">
+                            Upload datesheets, timetables, or notices to automatically populate schedules.
                           </div>
                         </div>
                       </div>
-                    </div>
 
-                    {/* AI Recommendation Card */}
-                    <div className="p-2.5 rounded-lg border border-[rgba(142,205,233,0.18)] bg-gradient-to-r from-[rgba(75,144,171,0.12)] to-[rgba(150,133,205,0.08)] flex items-center gap-2.5">
-                      <div className="w-6 h-6 rounded-md bg-[rgba(109,194,227,0.12)] border border-[rgba(126,209,237,0.2)] text-[#9ce4f6] flex items-center justify-center flex-shrink-0">
-                        <Sparkles size={12} />
-                      </div>
-                      <div className="min-w-0 flex-1 text-left">
-                        <div className="text-[9.5px] font-medium text-[#dbe9f0] leading-tight">
-                          AI Recommendation: Focus on Physics lab
-                        </div>
-                        <div className="text-[8px] text-[#8794a5] leading-tight">
-                          Highest workload impact · Estimated time 45 min
+                      <div className="p-2.5 rounded-lg border border-[rgba(219,230,244,0.08)] bg-white/[0.015] flex items-center gap-2.5">
+                        <span className="w-2 h-2 rounded-full bg-[#af9af7] flex-shrink-0" />
+                        <div className="min-w-0 flex-1">
+                          <div className="text-[11px] font-medium text-[#dce3ec]">
+                            Context-Aware Daily Planner
+                          </div>
+                          <div className="text-[9px] text-[#828d9d]">
+                            Prioritizes fixed classes, urgent deadlines, and revision for upcoming exams.
+                          </div>
                         </div>
                       </div>
-                      <span className="text-[8px] font-mono text-[#90dece] bg-[#90dece]/10 border border-[#90dece]/25 px-1.5 py-0.5 rounded">
-                        94% confidence
-                      </span>
+
+                      <div className="p-2.5 rounded-lg border border-[rgba(219,230,244,0.08)] bg-white/[0.015] flex items-center gap-2.5">
+                        <span className="w-2 h-2 rounded-full bg-[#75d5b0] flex-shrink-0" />
+                        <div className="min-w-0 flex-1">
+                          <div className="text-[11px] font-medium text-[#dce3ec]">
+                            Google Calendar Synchronization
+                          </div>
+                          <div className="text-[9px] text-[#828d9d]">
+                            Seamlessly synchronize assignments and study sessions with your external calendar.
+                          </div>
+                        </div>
+                      </div>
                     </div>
 
                   </div>
@@ -1227,9 +957,9 @@ export default function Login() {
                 <div className="px-4 py-2 border-t border-[rgba(214,229,247,0.075)] bg-black/20 flex items-center justify-between text-[8px] font-mono text-[#748091]">
                   <span className="flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-[#75d5b0]" />
-                    <span>SYNCHRONIZED WITH SEMESTER CALENDAR</span>
+                    <span>SECURE CLOUD STORAGE</span>
                   </span>
-                  <span>PREVIEW ONLY · UNLOCKS WITH CREDENTIALS</span>
+                  <span>DEADLINEIQ ACADEMIC PLATFORM</span>
                 </div>
               </div>
             </div>
@@ -1238,10 +968,10 @@ export default function Login() {
         </div>
       </main>
 
-      {/* Footer info */}
+      {/* Footer */}
       <footer className="relative z-10 w-full max-w-[1376px] mx-auto px-6 md:px-12 py-4 flex items-center justify-between text-[11px] text-[#647080] font-mono">
         <div>© 2026 DeadlineIQ · Academic planning, intelligently.</div>
-        <div className="hidden sm:block">PORTAL V1.0.4 · SECURE ACADEMIC COMMAND</div>
+        <div className="hidden sm:block">STUDENT WORKSPACE</div>
       </footer>
     </motion.div>
   );

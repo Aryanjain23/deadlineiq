@@ -9,13 +9,14 @@ import {
   sendPasswordResetEmail,
   updateProfile,
   signOut,
+  deleteUser,
   onAuthStateChanged,
   setPersistence,
   browserLocalPersistence,
   type Auth,
   type User,
 } from "firebase/auth";
-import { getDoc, setDoc } from "firebase/firestore";
+import { getDoc, setDoc, deleteDoc } from "firebase/firestore";
 import { getFirebaseApp, isFirebaseConfigured } from "./config";
 import { getUserDocRef, getFirebaseDb } from "./firestore";
 import type { UserProfileDocument } from "./types";
@@ -53,6 +54,40 @@ export function getFirebaseAuth(): Auth | null {
 }
 
 /**
+ * Normalizes phone numbers to standard E.164 format.
+ * Defaults to India (+91) if a 10-digit number is provided.
+ */
+export function formatPhoneNumber(rawPhone: string): string {
+  const trimmed = rawPhone.trim();
+  if (!trimmed) return "";
+
+  // If already prefixed with +, remove whitespace and special characters
+  if (trimmed.startsWith("+")) {
+    return "+" + trimmed.slice(1).replace(/[^0-9]/g, "");
+  }
+
+  // Strip all non-digits
+  const digits = trimmed.replace(/[^0-9]/g, "");
+
+  // If 10 digits (Standard Indian Mobile Number)
+  if (digits.length === 10) {
+    return `+91${digits}`;
+  }
+
+  // If 11 digits starting with 0
+  if (digits.length === 11 && digits.startsWith("0")) {
+    return `+91${digits.slice(1)}`;
+  }
+
+  // If 12 digits starting with 91
+  if (digits.length === 12 && digits.startsWith("91")) {
+    return `+${digits}`;
+  }
+
+  return `+${digits}`;
+}
+
+/**
  * Creates or synchronizes the user profile document at users/{uid} in Firestore.
  * Does NOT store passwords in Firestore.
  */
@@ -75,8 +110,10 @@ export async function syncUserProfileDocument(
       await setDoc(
         docRef,
         {
+          uid: user.uid,
           displayName: user.displayName || additionalData?.displayName || existing.displayName || "Student",
           email: user.email ?? existing.email ?? null,
+          phoneNumber: user.phoneNumber ?? existing.phoneNumber ?? null,
           photoURL: user.photoURL ?? existing.photoURL ?? null,
           usn: additionalData?.usn || existing.usn || "",
           lastLoginAt: now,
@@ -89,6 +126,7 @@ export async function syncUserProfileDocument(
         uid: user.uid,
         displayName: user.displayName || additionalData?.displayName || "Student",
         email: user.email || null,
+        phoneNumber: user.phoneNumber || null,
         photoURL: user.photoURL || null,
         usn: additionalData?.usn || "",
         semester: "",
@@ -201,16 +239,20 @@ export async function signInWithGoogle(
       return user;
     }
   } catch (error: any) {
-    // If popup was blocked, fall back to redirect if requested
+    // If popup was blocked or cancelled, fall back to redirect if top frame
+    const canRedirect = typeof window !== "undefined" && window.top === window.self;
     if (
       fallbackToRedirect &&
-      error?.code === "auth/popup-blocked"
+      canRedirect &&
+      (error?.code === "auth/popup-blocked" || error?.code === "auth/cancelled-popup-request")
     ) {
-      if (typeof window !== "undefined") {
+      try {
         sessionStorage.setItem("deadlineiq_pending_auth_mode", mode);
+        await signInWithRedirect(auth, provider);
+        return null;
+      } catch (redirectErr) {
+        console.warn("Redirect fallback prevented:", redirectErr);
       }
-      await signInWithRedirect(auth, provider);
-      return null;
     }
     throw error;
   }
@@ -403,6 +445,53 @@ export async function sendPasswordReset(email: string): Promise<void> {
 export async function logOutFromFirebase(): Promise<void> {
   const auth = getFirebaseAuth();
   if (auth) {
+    await signOut(auth);
+  }
+}
+
+/**
+ * Updates display name and photoURL in Firebase Auth user record.
+ */
+export async function updateFirebaseUserProfile(updates: {
+  displayName?: string;
+  photoURL?: string;
+}): Promise<void> {
+  const auth = getFirebaseAuth();
+  if (auth?.currentUser) {
+    await updateProfile(auth.currentUser, updates);
+  }
+}
+
+/**
+ * Deletes user account from Firebase Auth, Firestore profile document, and server registry.
+ */
+export async function deleteUserAccount(
+  uid: string,
+  email?: string | null
+): Promise<void> {
+  const db = getFirebaseDb();
+  if (db && uid) {
+    try {
+      const docRef = getUserDocRef(uid);
+      if (docRef) {
+        await deleteDoc(docRef);
+      }
+    } catch (e) {
+      console.warn("Could not delete firestore user document:", e);
+    }
+  }
+
+  if (email) {
+    await recordAccountUnregistration(email);
+  }
+
+  const auth = getFirebaseAuth();
+  if (auth?.currentUser) {
+    try {
+      await deleteUser(auth.currentUser);
+    } catch (e) {
+      console.warn("Firebase deleteUser:", e);
+    }
     await signOut(auth);
   }
 }

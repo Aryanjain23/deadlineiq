@@ -24,6 +24,7 @@ import {
   getNextUpcomingClass,
 } from "@/lib/timetable";
 import { nanoid } from "nanoid";
+import AiTimetableImportModal from "./AiTimetableImportModal";
 
 interface TimetableModalProps {
   isOpen: boolean;
@@ -60,6 +61,7 @@ export default function TimetableModal({
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isConfirmingClear, setIsConfirmingClear] = useState(false);
+  const [isAiImportOpen, setIsAiImportOpen] = useState(false);
 
   // Form State
   const [subject, setSubject] = useState("");
@@ -214,7 +216,19 @@ export default function TimetableModal({
             </p>
           </div>
 
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+            {!isAdding && (
+              <button
+                type="button"
+                onClick={() => setIsAiImportOpen(true)}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium text-text-primary bg-surface hover:bg-surface-elevated border border-border transition-all flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95 flex-shrink-0"
+                title="Import timetable with AI (PDF or Image)"
+              >
+                <Sparkles size={14} className="text-[#0284c7] dark:text-[#76d8fb]" />
+                <span>Import with AI</span>
+              </button>
+            )}
+
             {isConfirmingClear ? (
               <div className="flex items-center gap-1.5">
                 <button
@@ -245,6 +259,7 @@ export default function TimetableModal({
                 <span className="hidden sm:inline">Clear</span>
               </button>
             )}
+
             <button
               type="button"
               onClick={() => {
@@ -255,18 +270,21 @@ export default function TimetableModal({
                   setIsAdding(true);
                 }
               }}
-              className={`text-xs font-medium px-3.5 py-1.5 rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer shadow-xs ${
+              className={`text-xs font-semibold px-3.5 py-1.5 rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer shadow-xs active:scale-95 flex-shrink-0 ${
                 isAdding
                   ? "border-border text-text-secondary bg-surface hover:bg-surface-elevated"
-                  : "border-[#76d8fb]/40 text-[#07131b] bg-gradient-to-r from-[#9ae4f8] to-[#76d8fb] font-semibold hover:brightness-105"
+                  : "border-[#76d8fb]/40 text-[#07131b] bg-gradient-to-r from-[#9ae4f8] to-[#76d8fb] hover:brightness-105"
               }`}
             >
               {isAdding ? (
-                <>Cancel</>
+                <>
+                  <X size={14} />
+                  <span>Cancel</span>
+                </>
               ) : (
                 <>
                   <Plus size={14} />
-                  <span>+ Add Class</span>
+                  <span>Add Class</span>
                 </>
               )}
             </button>
@@ -858,6 +876,16 @@ export default function TimetableModal({
           )}
         </div>
       </div>
+
+      {/* AI Timetable Import Modal */}
+      <AiTimetableImportModal
+        isOpen={isAiImportOpen}
+        onClose={() => setIsAiImportOpen(false)}
+        existingTimetable={timetable}
+        onImportTimetable={(updated) => {
+          onUpdateTimetable(updated);
+        }}
+      />
     </div>
   );
 }

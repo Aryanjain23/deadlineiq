@@ -138,6 +138,118 @@ export default defineConfig({
           });
         });
 
+        // Unified AI Timetable Extraction API
+        server.middlewares.use("/api/extract-timetable", async (req, res) => {
+          if (req.method !== "POST") {
+            res.statusCode = 405;
+            res.end(JSON.stringify({ error: "Method not allowed" }));
+            return;
+          }
+
+          let body = "";
+          req.on("data", (chunk) => {
+            body += chunk;
+          });
+
+          req.on("end", async () => {
+            try {
+              const payload = JSON.parse(body || "{}");
+              const trimmedText = typeof payload.text === "string" ? payload.text.trim() : "";
+              if (!trimmedText && (!payload.file || !payload.file.base64)) {
+                res.statusCode = 400;
+                res.setHeader("Content-Type", "application/json");
+                res.end(
+                  JSON.stringify({
+                    success: false,
+                    error: "Please upload a timetable file (PDF/Image) or paste the schedule text.",
+                  })
+                );
+                return;
+              }
+
+              const result = await aiService.extractTimetable(
+                payload,
+                payload?.preferredProvider
+              );
+              res.setHeader("Content-Type", "application/json");
+              res.end(
+                JSON.stringify({
+                  success: true,
+                  entries: result.data,
+                  provider: result.provider,
+                  model: result.model,
+                })
+              );
+            } catch (err: any) {
+              console.error("AI Timetable Extraction Error:", err);
+              res.statusCode = 500;
+              res.setHeader("Content-Type", "application/json");
+              res.end(
+                JSON.stringify({
+                  success: false,
+                  error: aiService.sanitizeErrorMessage(err),
+                })
+              );
+            }
+          });
+        });
+
+        // Unified AI Exam Extraction API
+        server.middlewares.use("/api/extract-exams", async (req, res) => {
+          if (req.method !== "POST") {
+            res.statusCode = 405;
+            res.end(JSON.stringify({ error: "Method not allowed" }));
+            return;
+          }
+
+          let body = "";
+          req.on("data", (chunk) => {
+            body += chunk;
+          });
+
+          req.on("end", async () => {
+            try {
+              const payload = JSON.parse(body || "{}");
+              const trimmedText = typeof payload.text === "string" ? payload.text.trim() : "";
+              if (!trimmedText && (!payload.file || !payload.file.base64)) {
+                res.statusCode = 400;
+                res.setHeader("Content-Type", "application/json");
+                res.end(
+                  JSON.stringify({
+                    success: false,
+                    error: "Please upload an exam schedule file (PDF/Image) or paste the exam timetable text.",
+                  })
+                );
+                return;
+              }
+
+              const result = await aiService.extractExams(
+                payload,
+                payload?.preferredProvider
+              );
+              res.setHeader("Content-Type", "application/json");
+              res.end(
+                JSON.stringify({
+                  success: true,
+                  exams: result.data,
+                  provider: result.provider,
+                  model: result.model,
+                })
+              );
+            } catch (err: any) {
+              console.error("AI Exam Extraction Error:", err);
+              res.statusCode = 500;
+              res.setHeader("Content-Type", "application/json");
+              res.end(
+                JSON.stringify({
+                  success: false,
+                  error: aiService.sanitizeErrorMessage(err),
+                })
+              );
+            }
+          });
+        });
+
         // Unified AI Daily Planner API (Gemini & OpenRouter with fallback)
         server.middlewares.use("/api/plan-my-day", async (req, res) => {
           if (req.method !== "POST") {
@@ -201,4 +313,3 @@ export default defineConfig({
     allowedHosts: true,
   },
 });
-

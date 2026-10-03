@@ -86,6 +86,132 @@ async function startServer() {
     }
   });
 
+  // Unified AI Timetable Extraction API
+  app.post("/api/extract-timetable", async (req, res) => {
+    try {
+      const { text, file, preferredProvider } = req.body;
+
+      const trimmedText = typeof text === "string" ? text.trim() : "";
+      if (!trimmedText && (!file || !file.base64)) {
+        res.status(400).json({
+          success: false,
+          error: "Please upload a timetable file (PDF/Image) or paste the schedule text.",
+        });
+        return;
+      }
+
+      if (file) {
+        const allowedMimeTypes = [
+          "image/jpeg",
+          "image/jpg",
+          "image/png",
+          "image/webp",
+          "image/heic",
+          "image/gif",
+          "application/pdf",
+        ];
+
+        const mime = (file.mimeType || "").toLowerCase();
+        if (mime && !allowedMimeTypes.includes(mime)) {
+          res.status(400).json({
+            success: false,
+            error: "Unsupported file type. Please upload a PDF, PNG, JPG, or WebP timetable.",
+          });
+          return;
+        }
+
+        if (typeof file.base64 === "string" && file.base64.length > 22 * 1024 * 1024) {
+          res.status(400).json({
+            success: false,
+            error: "Selected file is too large (maximum size is 15MB). Please upload a smaller file.",
+          });
+          return;
+        }
+      }
+
+      const result = await aiService.extractTimetable(
+        { text: trimmedText, file },
+        preferredProvider
+      );
+      res.json({
+        success: true,
+        entries: result.data,
+        provider: result.provider,
+        model: result.model,
+      });
+    } catch (error: any) {
+      console.error("AI timetable extraction error:", error);
+      const userMessage = aiService.sanitizeErrorMessage(error);
+      res.status(500).json({
+        success: false,
+        error: userMessage,
+      });
+    }
+  });
+
+  // Unified AI Exam Schedule Extraction API
+  app.post("/api/extract-exams", async (req, res) => {
+    try {
+      const { text, file, currentDate, preferredProvider } = req.body;
+
+      const trimmedText = typeof text === "string" ? text.trim() : "";
+      if (!trimmedText && (!file || !file.base64)) {
+        res.status(400).json({
+          success: false,
+          error: "Please upload an exam schedule file (PDF/Image) or paste the exam timetable text.",
+        });
+        return;
+      }
+
+      if (file) {
+        const allowedMimeTypes = [
+          "image/jpeg",
+          "image/jpg",
+          "image/png",
+          "image/webp",
+          "image/heic",
+          "image/gif",
+          "application/pdf",
+        ];
+
+        const mime = (file.mimeType || "").toLowerCase();
+        if (mime && !allowedMimeTypes.includes(mime)) {
+          res.status(400).json({
+            success: false,
+            error: "Unsupported file type. Please upload a PDF, PNG, JPG, or WebP exam schedule.",
+          });
+          return;
+        }
+
+        if (typeof file.base64 === "string" && file.base64.length > 22 * 1024 * 1024) {
+          res.status(400).json({
+            success: false,
+            error: "Selected file is too large (maximum size is 15MB). Please upload a smaller file.",
+          });
+          return;
+        }
+      }
+
+      const result = await aiService.extractExams(
+        { text: trimmedText, file, currentDate },
+        preferredProvider
+      );
+      res.json({
+        success: true,
+        exams: result.data,
+        provider: result.provider,
+        model: result.model,
+      });
+    } catch (error: any) {
+      console.error("AI exam extraction error:", error);
+      const userMessage = aiService.sanitizeErrorMessage(error);
+      res.status(500).json({
+        success: false,
+        error: userMessage,
+      });
+    }
+  });
+
   // Unified AI Daily Planner API (Gemini & OpenRouter with automatic fallback)
   app.post("/api/plan-my-day", async (req, res) => {
     try {
@@ -101,9 +227,9 @@ async function startServer() {
         model: result.model,
       });
     } catch (error: any) {
-      console.error("AI plan-my-day error:", error);
+      console.warn("AI plan-my-day fallback triggered:", error?.message || error);
       const userMessage = aiService.sanitizeErrorMessage(error);
-      res.status(500).json({
+      res.json({
         success: false,
         error: userMessage,
       });

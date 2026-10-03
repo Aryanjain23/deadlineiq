@@ -142,8 +142,12 @@ export function getReadableFirebaseErrorMessage(error: unknown): string {
   if (message.includes("auth/popup-blocked")) {
     return "The sign-in popup was blocked by your browser. Please allow popups for this site.";
   }
-  if (message.includes("auth/network-request-failed")) {
-    return "Network connection failed. Please check your internet connectivity.";
+  if (
+    code === "auth/network-request-failed" ||
+    message.includes("auth/network-request-failed") ||
+    message.includes("network-request-failed")
+  ) {
+    return "Network connection issue during sign-in. Please check your connection or continue with Email/Password.";
   }
   if (message.includes("auth/operation-not-allowed")) {
     return "This sign-in provider is currently disabled in your Firebase console.";

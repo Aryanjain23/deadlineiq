@@ -4,6 +4,8 @@ import {
   AIResult,
   ExtractRequestPayload,
   ExtractedDeadline,
+  ExtractedTimetableEntry,
+  ExtractedExamEntry,
   PlanMyDayPayload,
   GeneratedScheduleBlock,
   AIError,
@@ -56,7 +58,7 @@ export class AIService {
         case "PROVIDER_UNAVAILABLE":
           return "AI service is temporarily unavailable. Please try again in a few moments.";
         case "MALFORMED_OUTPUT":
-          return "The AI generated an incomplete response. Please try again or enter the deadline manually.";
+          return "The document analysis encountered an incomplete response. Please try again or paste the text directly.";
         case "UNSUPPORTED_INPUT":
           return "The uploaded file format is not supported for AI analysis.";
         default:
@@ -67,6 +69,9 @@ export class AIService {
     const raw = String(error?.message || error || "");
     const lower = raw.toLowerCase();
 
+    if (lower.includes("json") || lower.includes("syntaxerror") || lower.includes("unexpected end")) {
+      return "The AI generated an incomplete response. Please try again or paste the schedule text directly.";
+    }
     if (lower.includes("rate limit") || lower.includes("quota") || lower.includes("429")) {
       return "AI service is temporarily busy due to rate limits. Please wait a moment and try again.";
     }
@@ -126,7 +131,7 @@ export class AIService {
         console.log(`[AIService] ${operationName} succeeded using ${result.provider} (${result.model})`);
         return result;
       } catch (err: any) {
-        console.warn(`[AIService] Provider ${providerName} failed for ${operationName}:`, err?.message || err);
+        console.log(`[AIService] Provider ${providerName} unavailable for ${operationName}, trying next provider:`, err?.message || err);
         errors.push({ provider: providerName, error: err });
 
         // If the error was a permanent client/auth error and no other providers exist, stop early
@@ -170,6 +175,58 @@ export class AIService {
       "generatePlanMyDay",
       (adapter) => adapter.generatePlanMyDay(payload),
       preferredProvider
+    );
+  }
+
+  public async extractTimetable(
+    payload: ExtractRequestPayload,
+    preferredProvider?: AIProvider
+  ): Promise<AIResult<ExtractedTimetableEntry[]>> {
+    let chosenPreferred = preferredProvider;
+    if (!chosenPreferred && payload.file?.mimeType?.toLowerCase().includes("pdf")) {
+      chosenPreferred = "gemini";
+    }
+
+    return this.executeWithFallback(
+      "extractTimetable",
+      async (adapter) => {
+        if (!adapter.extractTimetable) {
+          throw new AIError({
+            message: `Provider ${adapter.name} does not support timetable extraction.`,
+            code: "UNSUPPORTED_INPUT",
+            provider: adapter.name,
+            isRetryable: true,
+          });
+        }
+        return adapter.extractTimetable(payload);
+      },
+      chosenPreferred
+    );
+  }
+
+  public async extractExams(
+    payload: ExtractRequestPayload,
+    preferredProvider?: AIProvider
+  ): Promise<AIResult<ExtractedExamEntry[]>> {
+    let chosenPreferred = preferredProvider;
+    if (!chosenPreferred && payload.file?.mimeType?.toLowerCase().includes("pdf")) {
+      chosenPreferred = "gemini";
+    }
+
+    return this.executeWithFallback(
+      "extractExams",
+      async (adapter) => {
+        if (!adapter.extractExams) {
+          throw new AIError({
+            message: `Provider ${adapter.name} does not support exam extraction.`,
+            code: "UNSUPPORTED_INPUT",
+            provider: adapter.name,
+            isRetryable: true,
+          });
+        }
+        return adapter.extractExams(payload);
+      },
+      chosenPreferred
     );
   }
 }

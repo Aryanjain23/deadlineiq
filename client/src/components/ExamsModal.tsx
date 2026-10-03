@@ -29,6 +29,7 @@ import {
 } from "@/lib/exams";
 import type { TimetableEntry } from "@/lib/timetable";
 import { nanoid } from "nanoid";
+import AiExamImportModal from "./AiExamImportModal";
 
 interface ExamsModalProps {
   isOpen: boolean;
@@ -59,6 +60,7 @@ export default function ExamsModal({
 }: ExamsModalProps) {
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [isAiImportOpen, setIsAiImportOpen] = useState(false);
 
   // Form states
   const [subject, setSubject] = useState("");
@@ -234,9 +236,9 @@ export default function ExamsModal({
         <div className="pointer-events-none absolute -bottom-40 -right-40 w-96 h-96 bg-[#c0adff]/10 rounded-full blur-[100px] opacity-40 dark:opacity-100" />
 
         {/* Modal Header */}
-        <div className="relative z-10 px-6 sm:px-8 py-5 border-b border-border flex items-center justify-between flex-shrink-0 bg-surface/50">
+        <div className="relative z-10 px-5 sm:px-8 py-4 sm:py-5 border-b border-border flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 sm:gap-4 flex-shrink-0 bg-surface/50">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl border border-amber-500/40 bg-amber-500/10 text-amber-500 flex items-center justify-center shadow-xs">
+            <div className="w-10 h-10 rounded-2xl border border-amber-500/40 bg-amber-500/10 text-amber-500 flex items-center justify-center shadow-xs flex-shrink-0">
               <GraduationCap size={20} />
             </div>
             <div>
@@ -254,8 +256,21 @@ export default function ExamsModal({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+            {!isAdding && (
+              <button
+                type="button"
+                onClick={() => setIsAiImportOpen(true)}
+                className="px-3.5 py-2 rounded-xl text-xs font-medium text-text-primary bg-surface hover:bg-surface-elevated border border-border transition-all flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95 flex-shrink-0"
+                title="Import exam timetable with AI (PDF or Image)"
+              >
+                <Sparkles size={14} className="text-amber-500" />
+                <span>Import with AI</span>
+              </button>
+            )}
+
             <button
+              type="button"
               onClick={() => {
                 if (isAdding) {
                   resetForm();
@@ -263,10 +278,10 @@ export default function ExamsModal({
                   setIsAdding(true);
                 }
               }}
-              className={`px-3.5 py-2 rounded-xl text-xs font-medium transition-all flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95 ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95 flex-shrink-0 ${
                 isAdding
                   ? "bg-surface text-text-secondary border border-border hover:bg-surface-elevated"
-                  : "bg-gradient-to-r from-[#fbaf72] to-[#f97316] text-[#1c1003] font-semibold hover:brightness-105"
+                  : "bg-gradient-to-r from-[#fbaf72] to-[#f97316] text-[#1c1003] hover:brightness-105"
               }`}
             >
               {isAdding ? (
@@ -276,13 +291,14 @@ export default function ExamsModal({
                 </>
               ) : (
                 <>
-                  <Plus size={14} strokeWidth={2.5} />
-                  <span>+ Add Exam</span>
+                  <Plus size={14} strokeWidth={2} />
+                  <span>Add Exam</span>
                 </>
               )}
             </button>
 
             <button
+              type="button"
               onClick={() => {
                 resetForm();
                 onClose();
@@ -290,7 +306,7 @@ export default function ExamsModal({
               className="p-2 text-text-muted hover:text-text-primary rounded-xl hover:bg-surface-subtle transition-colors cursor-pointer"
               aria-label="Close modal"
             >
-              <X size={19} />
+              <X size={18} />
             </button>
           </div>
         </div>
@@ -692,6 +708,16 @@ export default function ExamsModal({
           </button>
         </div>
       </div>
+
+      {/* AI Exam Timetable Import Modal */}
+      <AiExamImportModal
+        isOpen={isAiImportOpen}
+        onClose={() => setIsAiImportOpen(false)}
+        existingExams={exams}
+        onImportExams={(updated) => {
+          onUpdateExams(updated);
+        }}
+      />
     </div>
   );
 }

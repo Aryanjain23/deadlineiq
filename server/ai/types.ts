@@ -91,6 +91,24 @@ export interface PlanMyDayActiveDeadline {
   isDueSoon: boolean;
 }
 
+export interface PlanMyDayUpcomingExam {
+  id: string;
+  subject: string;
+  subjectCode?: string;
+  examDate: string; // YYYY-MM-DD
+  startTime?: string;
+  endTime?: string;
+  examType?: string;
+  daysUntil: number;
+}
+
+export interface PlanMyDayCompletedTask {
+  id: string;
+  taskName: string;
+  subject: string;
+  completedAt?: string;
+}
+
 export interface PlanMyDayPayload {
   currentDate: string; // YYYY-MM-DD
   currentTime: string; // HH:mm
@@ -102,19 +120,62 @@ export interface PlanMyDayPayload {
   };
   fixedCommitments: PlanMyDayFixedCommitment[];
   activeDeadlines: PlanMyDayActiveDeadline[];
+  upcomingExams?: PlanMyDayUpcomingExam[];
+  completedTasks?: PlanMyDayCompletedTask[];
+  userSubjects?: string[];
 }
+
+export interface ExtractedTimetableEntry {
+  day: "Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday" | "Saturday" | "Sunday";
+  startTime: string; // HH:mm format, e.g. "09:00"
+  endTime: string;   // HH:mm format, e.g. "10:00"
+  subject: string;
+  subjectCode?: string | null;
+  faculty?: string | null;
+  room?: string | null;
+  section?: string | null;
+  confidenceLevel: "HIGH" | "MEDIUM" | "LOW";
+  isUncertain?: boolean;
+  notes?: string | null;
+}
+
+export interface ExtractedExamEntry {
+  subject: string;
+  subjectCode?: string | null;
+  examDate: string | null; // YYYY-MM-DD or null if missing/ambiguous
+  startTime: string | null; // HH:mm or null
+  endTime?: string | null;   // HH:mm or null
+  examType?: "Internal" | "Lab" | "SEE" | "Quiz" | "Practical" | "Other" | null;
+  room?: string | null;
+  semesterBranch?: string | null;
+  confidenceLevel: "HIGH" | "MEDIUM" | "LOW";
+  isDateAmbiguous?: boolean;
+  ambiguityNote?: string | null;
+  notes?: string | null;
+}
+
+export type ScheduleBlockType =
+  | "class"
+  | "task"
+  | "event"
+  | "break"
+  | "revision"
+  | "skill"
+  | "review"
+  | "organize";
 
 export interface GeneratedScheduleBlock {
   id: string;
   startTime: string;
   endTime: string;
   activity: string;
-  type: "class" | "task" | "event" | "break";
+  type: ScheduleBlockType;
   priority?: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
   deadlineId?: string;
   subject?: string;
   reason?: string;
   location?: string;
+  isAiRecommendation?: boolean;
 }
 
 export interface AIResult<T> {
@@ -128,4 +189,6 @@ export interface AIProviderAdapter {
   isAvailable(): boolean;
   extractDeadlines(payload: ExtractRequestPayload): Promise<AIResult<ExtractedDeadline[]>>;
   generatePlanMyDay(payload: PlanMyDayPayload): Promise<AIResult<GeneratedScheduleBlock[]>>;
+  extractTimetable?(payload: ExtractRequestPayload): Promise<AIResult<ExtractedTimetableEntry[]>>;
+  extractExams?(payload: ExtractRequestPayload): Promise<AIResult<ExtractedExamEntry[]>>;
 }

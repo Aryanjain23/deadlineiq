@@ -64,25 +64,6 @@ interface AiExtractModalProps {
   onOpenManualModal?: () => void;
 }
 
-const SAMPLE_NOTICES = [
-  {
-    label: "Multi-Deadline Circular",
-    text: "Department of Mathematics & Computing (MAT202):\n1. Tutorial Sheet 4 (Eigenvalues & Orthogonalization) must be submitted by October 9, 2026 before 17:00.\n2. Semester Midterm Examination will take place on October 22, 2026 from 10:00 to 12:00 in Hall B.\n3. Late submissions incur a 10% penalty per calendar day.",
-  },
-  {
-    label: "Explicit Date & Time Notice",
-    text: "Physics PHY101 Notice: Complete Chapter 4 numerical problems and error calculations. Final submission deadline is October 14, 2026 at 23:59 via student portal.",
-  },
-  {
-    label: "Next Class Notice (Relative)",
-    text: "Electronics Laboratory: Complete operational amplifier LTSpice simulation report and submit physical hardcopy in next lab session.",
-  },
-  {
-    label: "Ambiguous Date Notice",
-    text: "CAD104 Computer Aided Design: Finish 3D isometric view assembly exercises sometime next week before the faculty review begins.",
-  },
-];
-
 // Helper: Normalize strings for duplicate comparison
 function normalizeText(text: string): string {
   return (text || "")
@@ -465,10 +446,20 @@ export default function AiExtractModal({
         body: JSON.stringify(payload),
       });
 
-      const data = await response.json();
+      let data: any = null;
+      try {
+        const rawText = await response.text();
+        if (rawText && rawText.trim().startsWith("{")) {
+          data = JSON.parse(rawText);
+        } else if (rawText) {
+          data = { success: false, error: rawText };
+        }
+      } catch {
+        data = null;
+      }
 
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || "Failed to analyze notice. Please try again.");
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || `Server error (${response.status}) while analyzing notice.`);
       }
 
       if (!Array.isArray(data.deadlines) || data.deadlines.length === 0) {
@@ -861,31 +852,6 @@ export default function AiExtractModal({
                 placeholder="e.g. 'Physics PHY101: Submit Experiment 4 lab calculations by October 14, 2026 before 17:00...'"
                 className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-[#111726] border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-all font-sans resize-none shadow-xs"
               />
-            </div>
-
-            {/* Sample Notices (No Emojis) */}
-            <div>
-              <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block mb-2">
-                Sample notices:
-              </span>
-              <div className="flex flex-wrap gap-2">
-                {SAMPLE_NOTICES.map((sample, idx) => (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() => {
-                      setPastedText(sample.text);
-                      setSelectedFile(null);
-                      setFileBase64(null);
-                      setErrorMessage(null);
-                    }}
-                    className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-white/10 hover:border-blue-400 dark:hover:border-blue-500/40 bg-white dark:bg-[#111726] hover:bg-slate-50 dark:hover:bg-[#141b2d] text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-all text-left cursor-pointer shadow-xs flex items-center gap-1.5"
-                  >
-                    <FileText size={12} className="text-slate-400 flex-shrink-0" />
-                    <span>{sample.label}</span>
-                  </button>
-                ))}
-              </div>
             </div>
 
             {/* Action Button: Run Extraction */}

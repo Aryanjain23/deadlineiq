@@ -14,17 +14,26 @@ export interface FirebaseConfigOptions {
   firestoreDatabaseId?: string;
 }
 
+const fallbackFirebaseConfig: FirebaseConfigOptions = {
+  projectId: "gen-lang-client-0280963417",
+  appId: "1:392328787822:web:58979933490f6d6f83f37f",
+  apiKey: "AIzaSyCqtQKhVV89n85u-ytTlKkEm-olKT9nf_0",
+  authDomain: "gen-lang-client-0280963417.firebaseapp.com",
+  storageBucket: "gen-lang-client-0280963417.firebasestorage.app",
+  messagingSenderId: "392328787822",
+};
+
 /**
- * Retrieves Firebase configuration from environment variables.
+ * Retrieves Firebase configuration from environment variables with safe fallback.
  */
 export function getFirebaseConfig(): FirebaseConfigOptions {
   return {
-    apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "",
-    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "",
-    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "",
-    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "",
-    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "",
-    appId: import.meta.env.VITE_FIREBASE_APP_ID || "",
+    apiKey: import.meta.env.VITE_FIREBASE_API_KEY || fallbackFirebaseConfig.apiKey,
+    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || fallbackFirebaseConfig.authDomain,
+    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || fallbackFirebaseConfig.projectId,
+    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || fallbackFirebaseConfig.storageBucket,
+    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || fallbackFirebaseConfig.messagingSenderId,
+    appId: import.meta.env.VITE_FIREBASE_APP_ID || fallbackFirebaseConfig.appId,
   };
 }
 

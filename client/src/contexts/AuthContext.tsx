@@ -22,6 +22,7 @@ import {
   signInWithEmail as fbSignInWithEmail,
   sendPasswordReset as fbSendPasswordReset,
   logOutFromFirebase,
+  deleteUserAccount,
   onFirebaseAuthStateChanged,
   isFirebaseConfigured,
   isAuthCancelledError,
@@ -43,6 +44,7 @@ interface AuthContextType {
   loginWithEmail: (email: string, pass: string) => Promise<AuthUser>;
   resetPassword: (email: string) => Promise<void>;
   logout: () => Promise<void>;
+  deleteAccount: () => Promise<void>;
   updateUserContext: (updates: Partial<AuthUser>) => void;
 }
 
@@ -161,15 +163,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         const isExpectedAuthIssue =
           error?.code === "auth/unauthorized-domain" ||
+          error?.code === "auth/network-request-failed" ||
+          error?.code === "auth/popup-blocked" ||
+          error?.code === "auth/cancelled-popup-request" ||
+          error?.code === "auth/popup-closed-by-user" ||
           error?.code === "deadlineiq/no-google-account" ||
           error?.code === "deadlineiq/account-already-exists" ||
           String(error?.message).includes("auth/unauthorized-domain") ||
-          String(error?.message).includes("unauthorized-domain");
+          String(error?.message).includes("unauthorized-domain") ||
+          String(error?.message).includes("network-request-failed");
 
         if (isExpectedAuthIssue) {
           console.warn("Google sign-in prevented:", error?.code || error?.message);
         } else {
-          console.error("Google sign-in error:", error);
+          console.warn("Google sign-in issue:", error?.code || error?.message);
         }
         throw error;
       } finally {
@@ -246,6 +253,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
+  const deleteAccount = useCallback(async () => {
+    if (!user) return;
+    const uid = user.uid || (user.usn ? `usn_${user.usn}` : "");
+    const email = user.email || null;
+    try {
+      clearGoogleAccessToken();
+      await deleteUserAccount(uid, email);
+    } catch (err) {
+      console.warn("Account deletion error:", err);
+    }
+    clearSession();
+    setUser(null);
+  }, [user]);
+
   const updateUserContext = useCallback((updates: Partial<AuthUser>) => {
     setUser((prev) => {
       if (!prev) return null;
@@ -267,6 +288,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loginWithEmail,
         resetPassword,
         logout,
+        deleteAccount,
         updateUserContext,
       }}
     >

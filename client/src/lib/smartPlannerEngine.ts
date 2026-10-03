@@ -1,19 +1,21 @@
 import type { Deadline, ImportanceLevel } from "./deadlines";
 import type { TimetableEntry, DayOfWeek } from "./timetable";
 import type { CalendarEvent } from "./calendar";
+import type { Exam } from "./exams";
 import type {
   ScheduleBlock,
   ScheduleBlockType,
   PlanPreferences,
-  SavedDailyPlan,
 } from "./firebase/types";
 
 export interface BuildPlanParams {
   deadlines: Deadline[];
   timetable: TimetableEntry[];
   events: CalendarEvent[];
+  exams?: Exam[];
   preferences: PlanPreferences;
   currentDate?: Date; // Defaults to now
+  planFreeTimeAnyway?: boolean;
 }
 
 export const DEFAULT_PLAN_PREFERENCES: PlanPreferences = {
@@ -39,6 +41,27 @@ export function minutesToTime(mins: number): string {
   const h = Math.floor(normalized / 60);
   const m = normalized % 60;
   return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
+}
+
+/**
+ * Calculates human-readable duration between two HH:mm strings.
+ * e.g. "45 min", "1 hr", "1 hr 15 min"
+ */
+export function formatBlockDuration(startTime: string, endTime: string): string {
+  const startMins = timeToMinutes(startTime);
+  const endMins = timeToMinutes(endTime);
+  const diff = Math.max(0, endMins - startMins);
+
+  if (diff <= 0) return "0 min";
+  if (diff < 60) return `${diff} min`;
+
+  const hours = Math.floor(diff / 60);
+  const remainingMins = diff % 60;
+
+  if (remainingMins === 0) {
+    return hours === 1 ? "1 hr" : `${hours} hrs`;
+  }
+  return `${hours} hr ${remainingMins} min`;
 }
 
 export function getTodayDayOfWeek(date: Date): DayOfWeek {
@@ -68,7 +91,27 @@ export function formatCurrentTimeHHMM(date: Date): string {
 }
 
 /**
- * Generates an intelligent schedule for today via Gemini AI backend,
+ * Clean, concise reasons for plan items
+ */
+export function cleanReasonText(reason?: string): string | undefined {
+  if (!reason) return undefined;
+  const trimmed = reason.trim();
+  if (!trimmed) return undefined;
+
+  // Filter out redundant technical sentences
+  if (
+    trimmed.toLowerCase().includes("contextual schedule") ||
+    trimmed.toLowerCase().includes("weekly academic timetable") ||
+    trimmed.toLowerCase().includes("session duration") ||
+    trimmed.toLowerCase().includes("deterministic planner")
+  ) {
+    return undefined;
+  }
+  return trimmed;
+}
+
+/**
+ * Generates a context-aware intelligent schedule for today via AI backend,
  * with deterministic fallback.
  */
 export async function generateDailySchedule(
@@ -80,19 +123,60 @@ export async function generateDailySchedule(
   const todayDay = getTodayDayOfWeek(now);
 
   const activeDeadlines = (params.deadlines || []).filter((d) => !d.completed);
+  const completedDeadlines = (params.deadlines || []).filter((d) => d.completed).slice(0, 10);
+  const allExams = params.exams || [];
 
   // 1. Gather Fixed Commitments for Today
   const todayClasses = (params.timetable || []).filter((t) => t.day === todayDay);
   const todayEvents = (params.events || []).filter(
     (ev) => ev && ev.date === todayStr && !ev.allDay
   );
+  const todayExams = allExams.filter((ex) => ex.examDate === todayStr);
 
-  // If there are zero active deadlines AND zero classes AND zero events:
-  if (activeDeadlines.length === 0 && todayClasses.length === 0 && todayEvents.length === 0) {
+  // 2. Upcoming Exams (Next 14-30 Days)
+  const upcomingExams = allExams
+    .filter((ex) => ex.examDate >= todayStr)
+    .map((ex) => {
+      let daysUntil = 0;
+      try {
+        const examTime = new Date(`${ex.examDate}T00:00:00`).getTime();
+        const todayTime = new Date(`${todayStr}T00:00:00`).getTime();
+        daysUntil = Math.max(0, Math.round((examTime - todayTime) / (1000 * 60 * 60 * 24)));
+      } catch {}
+      return {
+        id: ex.id,
+        subject: ex.subject,
+        subjectCode: ex.subjectCode,
+        examDate: ex.examDate,
+        startTime: ex.startTime,
+        endTime: ex.endTime,
+        examType: ex.examType,
+        daysUntil,
+      };
+    })
+    .sort((a, b) => a.daysUntil - b.daysUntil);
+
+  // 3. Extract Unique User Enrolled Subjects / Courses
+  const subjectSet = new Set<string>();
+  (params.timetable || []).forEach((t) => t.subject && subjectSet.add(t.subject.trim()));
+  (params.deadlines || []).forEach((d) => d.subject && subjectSet.add(d.subject.trim()));
+  allExams.forEach((e) => e.subject && subjectSet.add(e.subject.trim()));
+  const userSubjects = Array.from(subjectSet).filter(Boolean);
+
+  // If user has zero data and hasn't requested free time planning, return empty
+  const hasAcademicData =
+    activeDeadlines.length > 0 ||
+    todayClasses.length > 0 ||
+    todayEvents.length > 0 ||
+    todayExams.length > 0 ||
+    upcomingExams.length > 0 ||
+    userSubjects.length > 0;
+
+  if (!hasAcademicData && !params.planFreeTimeAnyway) {
     return { blocks: [], isAiGenerated: false };
   }
 
-  // Build Payload for Gemini
+  // Build Payload for AI API
   const fixedCommitments = [
     ...todayClasses.map((c) => ({
       id: `class-${c.id}`,
@@ -112,18 +196,27 @@ export async function generateDailySchedule(
       location: ev.location,
       subject: ev.category,
     })),
+    ...todayExams.map((ex) => ({
+      id: `exam-${ex.id}`,
+      title: `${ex.subject} ${ex.examType || "Exam"}`,
+      startTime: ex.startTime || "10:00",
+      endTime: ex.endTime || minutesToTime(timeToMinutes(ex.startTime || "10:00") + 180),
+      type: "event" as const,
+      location: ex.room || "Exam Hall",
+      subject: ex.subject,
+    })),
   ];
 
   const payloadDeadlines = activeDeadlines.map((d) => {
     const isOverdue = d.dueDate < todayStr;
     const isDueToday = d.dueDate === todayStr;
-    // Check if due in next 2 days
     let isDueSoon = false;
+    let daysDiff = 0;
     try {
       const due = new Date(`${d.dueDate}T00:00:00`).getTime();
       const today = new Date(`${todayStr}T00:00:00`).getTime();
-      const diffDays = Math.round((due - today) / (1000 * 60 * 60 * 24));
-      isDueSoon = diffDays > 0 && diffDays <= 2;
+      daysDiff = Math.round((due - today) / (1000 * 60 * 60 * 24));
+      isDueSoon = daysDiff > 0 && daysDiff <= 2;
     } catch {}
 
     return {
@@ -137,10 +230,18 @@ export async function generateDailySchedule(
       isOverdue,
       isDueToday,
       isDueSoon,
+      daysDiff,
     };
   });
 
-  // Try Gemini AI API first
+  const payloadCompleted = completedDeadlines.map((d) => ({
+    id: d.id,
+    taskName: d.taskName,
+    subject: d.subject,
+    completedAt: d.updatedAt,
+  }));
+
+  // Try AI API
   try {
     const res = await fetch("/api/plan-my-day", {
       method: "POST",
@@ -151,13 +252,15 @@ export async function generateDailySchedule(
         preferences: params.preferences,
         fixedCommitments,
         activeDeadlines: payloadDeadlines,
+        upcomingExams,
+        completedTasks: payloadCompleted,
+        userSubjects,
       }),
     });
 
     if (res.ok) {
       const data = await res.json();
       if (data.success && Array.isArray(data.blocks) && data.blocks.length > 0) {
-        // Validate and clean up AI output
         const validBlocks: ScheduleBlock[] = data.blocks
           .filter((b: any) => b && b.startTime && b.endTime && b.activity)
           .map((b: any, index: number) => ({
@@ -169,8 +272,15 @@ export async function generateDailySchedule(
             priority: b.priority as ImportanceLevel | undefined,
             deadlineId: b.deadlineId || undefined,
             subject: b.subject || undefined,
-            reason: b.reason || undefined,
+            reason: cleanReasonText(b.reason),
             location: b.location || undefined,
+            isAiRecommendation: Boolean(
+              b.isAiRecommendation ||
+              b.type === "revision" ||
+              b.type === "skill" ||
+              b.type === "review" ||
+              b.type === "organize"
+            ),
             isCompleted: false,
           }))
           .sort((a: ScheduleBlock, b: ScheduleBlock) => a.startTime.localeCompare(b.startTime));
@@ -182,18 +292,21 @@ export async function generateDailySchedule(
     console.warn("Server AI planner request failed, falling back to deterministic planner:", err);
   }
 
-  // Graceful Deterministic Fallback Engine
+  // Fallback to rich deterministic planner
   const fallbackBlocks = generateDeterministicSchedule(params);
   return { blocks: fallbackBlocks, isAiGenerated: false };
 }
 
 /**
- * Deterministic Algorithm:
- * 1. Places all fixed commitments (classes & events)
+ * Context-Aware Deterministic Algorithm:
+ * 1. Places all fixed commitments (classes, today's exams & events)
  * 2. Identifies free slots between preferences.startTime and preferences.endTime
- * 3. Never schedules prior to current time (no past scheduling)
- * 4. Sorts tasks by priority (Overdue > Due Today > Due Soon > Priority level)
- * 5. Packs work blocks into free slots and inserts realistic breaks
+ * 3. Never schedules in the past
+ * 4. Fills free time based on hierarchy:
+ *    - Priority 1: Overdue & due-today deadlines
+ *    - Priority 2: Upcoming exam revisions (exams within 14-30 days)
+ *    - Priority 3: Subject reviews & technical skills for enrolled courses
+ *    - Priority 4: Intelligent free time suggestions (skill learning, workspace organization, walks, breaks)
  */
 export function generateDeterministicSchedule(params: BuildPlanParams): ScheduleBlock[] {
   const now = params.currentDate || new Date();
@@ -211,14 +324,11 @@ export function generateDeterministicSchedule(params: BuildPlanParams): Schedule
   let windowStart = timeToMinutes(prefStart);
   const windowEnd = timeToMinutes(prefEnd);
 
-  // Safety rule: Do not schedule tasks in the past.
-  // If current time is past preferred start time, advance windowStart to current time (rounded up to nearest 5 min)
   if (currentTimeMins > windowStart) {
     windowStart = Math.ceil(currentTimeMins / 5) * 5;
   }
 
   if (windowStart >= windowEnd) {
-    // If entire window has passed, show classes/events or return empty
     return [];
   }
 
@@ -235,11 +345,30 @@ export function generateDeterministicSchedule(params: BuildPlanParams): Schedule
       type: "class",
       subject: c.subject,
       location: c.room || (c.instructor ? `With ${c.instructor}` : undefined),
-      reason: "Scheduled class from weekly academic timetable",
+      reason: undefined,
+      isAiRecommendation: false,
     });
   }
 
-  // 2. Add Today's Calendar Events
+  // 2. Add Today's Exams
+  const todayExams = (params.exams || []).filter((e) => e.examDate === todayStr);
+  for (const ex of todayExams) {
+    const exStart = ex.startTime || "10:00";
+    const exEnd = ex.endTime || minutesToTime(timeToMinutes(exStart) + 180);
+    resultBlocks.push({
+      id: `exam-${ex.id}`,
+      startTime: exStart,
+      endTime: exEnd,
+      activity: `${ex.subject} Examination`,
+      type: "event",
+      subject: ex.subject,
+      location: ex.room || "Examination Hall",
+      reason: "Exam today",
+      isAiRecommendation: false,
+    });
+  }
+
+  // 3. Add Today's Calendar Events
   const todayEvents = (params.events || []).filter(
     (ev) => ev && ev.date === todayStr && !ev.allDay && ev.startTime
   );
@@ -253,70 +382,182 @@ export function generateDeterministicSchedule(params: BuildPlanParams): Schedule
       activity: ev.title,
       type: "event",
       location: ev.location,
-      reason: `Event from calendar (${ev.category})`,
+      reason: undefined,
+      isAiRecommendation: false,
     });
   }
 
-  // Sort fixed commitments by start time
   resultBlocks.sort((a, b) => a.startTime.localeCompare(b.startTime));
 
-  // 3. Prioritize Active Deadlines
+  // 4. Gather Candidate Study & Free-Time Activities
+  interface CandidateActivity {
+    activity: string;
+    type: ScheduleBlockType;
+    priority?: ImportanceLevel;
+    deadlineId?: string;
+    subject?: string;
+    reason?: string;
+    score: number;
+    isAiRecommendation: boolean;
+  }
+
+  const candidatePool: CandidateActivity[] = [];
+
+  // A. Active Deadlines
   const activeDeadlines = (params.deadlines || []).filter((d) => !d.completed);
-  const scoredDeadlines = activeDeadlines.map((d) => {
+  for (const d of activeDeadlines) {
     let score = 0;
-    const reasons: string[] = [];
+    let reasonText = "";
 
     const isOverdue = d.dueDate < todayStr;
     const isDueToday = d.dueDate === todayStr;
 
     if (isOverdue) {
-      score += 1000;
-      reasons.push("Overdue assignment — top priority");
+      score += 1200;
+      reasonText = "Overdue";
     } else if (isDueToday) {
-      score += 500;
-      reasons.push(`Due today${d.dueTime ? ` by ${d.dueTime}` : ""}`);
+      score += 800;
+      reasonText = d.dueTime ? `Due today at ${d.dueTime}` : "Due today";
     } else {
       try {
         const due = new Date(`${d.dueDate}T00:00:00`).getTime();
         const today = new Date(`${todayStr}T00:00:00`).getTime();
         const diffDays = Math.round((due - today) / (1000 * 60 * 60 * 24));
-        if (diffDays <= 2) {
-          score += 250;
-          reasons.push(`Due in ${diffDays} day${diffDays === 1 ? "" : "s"}`);
-        } else if (diffDays <= 5) {
-          score += 100;
-          reasons.push(`Due in ${diffDays} days`);
+        if (diffDays === 1) {
+          score += 500;
+          reasonText = "Due tomorrow";
+        } else if (diffDays <= 3) {
+          score += 350;
+          reasonText = `Due in ${diffDays} days`;
+        } else if (diffDays <= 7) {
+          score += 200;
+          reasonText = `Due in ${diffDays} days`;
+        } else {
+          score += 80;
+          reasonText = "Upcoming deadline";
         }
-      } catch {}
+      } catch {
+        reasonText = "Active task";
+      }
     }
 
-    switch (d.importance) {
-      case "CRITICAL":
-        score += 80;
-        reasons.push("Critical priority");
-        break;
-      case "HIGH":
-        score += 50;
-        reasons.push("High priority");
-        break;
-      case "MEDIUM":
-        score += 25;
-        break;
-      case "LOW":
-        score += 10;
-        break;
-    }
+    if (d.importance === "CRITICAL") score += 100;
+    else if (d.importance === "HIGH") score += 60;
+    else if (d.importance === "MEDIUM") score += 30;
 
-    return {
-      deadline: d,
+    candidatePool.push({
+      activity: d.taskName,
+      type: "task",
+      priority: d.importance,
+      deadlineId: d.id,
+      subject: d.subject,
+      reason: reasonText || undefined,
       score,
-      reason: reasons.join(" · ") || `Priority task for ${d.subject}`,
-    };
-  });
+      isAiRecommendation: false,
+    });
+  }
 
-  scoredDeadlines.sort((a, b) => b.score - a.score);
+  // B. Upcoming Exams Revision
+  const upcomingExams = (params.exams || []).filter((e) => e.examDate > todayStr);
+  const subjectsWithDeadlines = new Set(activeDeadlines.map((d) => d.subject.trim().toLowerCase()));
 
-  // 4. Calculate Free Slots
+  for (const ex of upcomingExams) {
+    let daysUntil = 14;
+    try {
+      const examTime = new Date(`${ex.examDate}T00:00:00`).getTime();
+      const todayTime = new Date(`${todayStr}T00:00:00`).getTime();
+      daysUntil = Math.max(1, Math.round((examTime - todayTime) / (1000 * 60 * 60 * 24)));
+    } catch {}
+
+    if (daysUntil <= 21) {
+      const hasTask = subjectsWithDeadlines.has(ex.subject.trim().toLowerCase());
+      const score = 650 - daysUntil * 25 + (hasTask ? 0 : 50);
+
+      candidatePool.push({
+        activity: `${ex.subject} revision`,
+        type: "revision",
+        priority: daysUntil <= 3 ? "CRITICAL" : daysUntil <= 7 ? "HIGH" : "MEDIUM",
+        subject: ex.subject,
+        reason: daysUntil === 1 ? "Exam tomorrow" : `Exam in ${daysUntil} days`,
+        score,
+        isAiRecommendation: true,
+      });
+    }
+  }
+
+  // C. Subject Reviews for Enrolled Courses with No Active Tasks
+  const allSubjectSet = new Set<string>();
+  (params.timetable || []).forEach((t) => t.subject && allSubjectSet.add(t.subject.trim()));
+  (params.exams || []).forEach((e) => e.subject && allSubjectSet.add(e.subject.trim()));
+
+  for (const subj of Array.from(allSubjectSet)) {
+    const hasDeadline = subjectsWithDeadlines.has(subj.toLowerCase());
+    const hasUpcomingExam = upcomingExams.some((e) => e.subject.trim().toLowerCase() === subj.toLowerCase());
+
+    if (!hasDeadline && !hasUpcomingExam) {
+      candidatePool.push({
+        activity: `${subj} revision & problem solving`,
+        type: "review",
+        priority: "MEDIUM",
+        subject: subj,
+        reason: "Subject review",
+        score: 150,
+        isAiRecommendation: true,
+      });
+
+      candidatePool.push({
+        activity: `Practice technical exercises: ${subj}`,
+        type: "skill",
+        priority: "LOW",
+        subject: subj,
+        reason: "Skill practice",
+        score: 120,
+        isAiRecommendation: true,
+      });
+    }
+  }
+
+  // D. Free-Time Suggestions when user requests plan or has extra time
+  if (candidatePool.length === 0 || params.planFreeTimeAnyway) {
+    candidatePool.push(
+      {
+        activity: "Technical skill practice & coding",
+        type: "skill",
+        priority: "MEDIUM",
+        reason: "Learn a new skill",
+        score: 90,
+        isAiRecommendation: true,
+      },
+      {
+        activity: "Review recent lecture notes",
+        type: "review",
+        priority: "LOW",
+        reason: "Study review",
+        score: 80,
+        isAiRecommendation: true,
+      },
+      {
+        activity: "Organize upcoming academic work & workspace",
+        type: "organize",
+        priority: "LOW",
+        reason: "Organization",
+        score: 70,
+        isAiRecommendation: true,
+      },
+      {
+        activity: "Walk or physical exercise break",
+        type: "break",
+        reason: "Rest & recharge",
+        score: 60,
+        isAiRecommendation: true,
+      }
+    );
+  }
+
+  // Sort candidate pool by score descending
+  candidatePool.sort((a, b) => b.score - a.score);
+
+  // 5. Calculate Free Slots
   interface TimeSlot {
     start: number;
     end: number;
@@ -332,11 +573,10 @@ export function generateDeterministicSchedule(params: BuildPlanParams): Schedule
   let currentPointer = windowStart;
 
   for (const occ of occupiedSlots) {
-    if (occ.end <= currentPointer) continue; // Past commitment
+    if (occ.end <= currentPointer) continue;
     if (occ.start > currentPointer) {
       const gapEnd = Math.min(occ.start, windowEnd);
       if (gapEnd - currentPointer >= 20) {
-        // Only consider gaps >= 20 minutes
         freeSlots.push({ start: currentPointer, end: gapEnd });
       }
     }
@@ -348,59 +588,59 @@ export function generateDeterministicSchedule(params: BuildPlanParams): Schedule
     freeSlots.push({ start: currentPointer, end: windowEnd });
   }
 
-  // 5. Fill Free Slots with Tasks and Breaks
-  let taskIndex = 0;
-  const newTasksAndBreaks: ScheduleBlock[] = [];
+  // 6. Fill Free Slots with Study/Revision/Skill Blocks and Breaks
+  let itemIndex = 0;
+  const scheduledActivities: ScheduleBlock[] = [];
 
   for (const slot of freeSlots) {
     let slotTime = slot.start;
 
-    while (slotTime + 20 <= slot.end && taskIndex < scoredDeadlines.length) {
-      const { deadline, reason } = scoredDeadlines[taskIndex];
+    while (slotTime + 20 <= slot.end && itemIndex < candidatePool.length) {
+      const candidate = candidatePool[itemIndex];
       const remainingInSlot = slot.end - slotTime;
       const sessionDuration = Math.min(sessionLengthMinutes, remainingInSlot);
 
-      if (sessionDuration < 20) break; // Not enough time for a session
+      if (sessionDuration < 20) break;
 
       const blockStart = minutesToTime(slotTime);
       const blockEnd = minutesToTime(slotTime + sessionDuration);
 
-      newTasksAndBreaks.push({
-        id: `task-plan-${deadline.id}-${Date.now()}-${taskIndex}`,
+      scheduledActivities.push({
+        id: `plan-${candidate.type}-${Date.now()}-${itemIndex}`,
         startTime: blockStart,
         endTime: blockEnd,
-        activity: deadline.taskName,
-        type: "task",
-        priority: deadline.importance,
-        deadlineId: deadline.id,
-        subject: deadline.subject,
-        reason: `${reason} — allocated ${sessionDuration}m focus session`,
+        activity: candidate.activity,
+        type: candidate.type,
+        priority: candidate.priority,
+        deadlineId: candidate.deadlineId,
+        subject: candidate.subject,
+        reason: candidate.reason,
+        isAiRecommendation: candidate.isAiRecommendation,
         isCompleted: false,
       });
 
       slotTime += sessionDuration;
-      taskIndex++;
+      itemIndex++;
 
-      // Insert break if there's enough time remaining in slot
-      if (slot.end - slotTime >= breakLengthMinutes + 20) {
+      // Insert break if ample time remains in this slot
+      if (slot.end - slotTime >= breakLengthMinutes + 25) {
         const breakEnd = slotTime + breakLengthMinutes;
-        newTasksAndBreaks.push({
+        scheduledActivities.push({
           id: `break-${Date.now()}-${slotTime}`,
           startTime: minutesToTime(slotTime),
           endTime: minutesToTime(breakEnd),
-          activity: "Recovery Break",
+          activity: "Break",
           type: "break",
-          reason: `${breakLengthMinutes}m rest after focused academic work`,
+          reason: undefined,
+          isAiRecommendation: false,
         });
         slotTime = breakEnd;
       }
     }
   }
 
-  // Combine and sort everything
-  const finalSchedule = [...resultBlocks, ...newTasksAndBreaks].sort((a, b) =>
+  // Combine and sort chronologically
+  return [...resultBlocks, ...scheduledActivities].sort((a, b) =>
     a.startTime.localeCompare(b.startTime)
   );
-
-  return finalSchedule;
 }

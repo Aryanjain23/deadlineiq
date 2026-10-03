@@ -9,6 +9,7 @@ import Home from "./pages/Home";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import CalendarPage from "./pages/CalendarPage";
+import AccountPage from "./pages/AccountPage";
 
 function Router() {
   return (
@@ -17,6 +18,8 @@ function Router() {
       <Route path="/login" component={Login} />
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/calendar" component={CalendarPage} />
+      <Route path="/account" component={AccountPage} />
+      <Route path="/profile" component={AccountPage} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

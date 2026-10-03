@@ -135,11 +135,11 @@ function Header() {
           <a href="#features" onClick={closeMenu}>Features</a>
           <a href="#how-it-works" onClick={closeMenu}>How it works</a>
           <a href="#about" onClick={closeMenu}>About</a>
-          <a className="nav-mobile-login" href="#get-started" onClick={closeMenu}>Log in <ArrowUpRight size={14} /></a>
+          <MagneticLink className="nav-mobile-login" href="/login" onClick={closeMenu}>Log in <ArrowUpRight size={14} /></MagneticLink>
         </nav>
         <div className="nav-actions">
-          <a className="nav-login" href="#get-started">Log in</a>
-          <a className="nav-cta" href="#get-started">Get started <ArrowUpRight size={14} /></a>
+          <MagneticLink className="nav-login" href="/login">Log in</MagneticLink>
+          <MagneticLink className="nav-cta" href="/login" arrow>Get started</MagneticLink>
         </div>
         <button
           className="menu-toggle"

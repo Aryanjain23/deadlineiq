@@ -9,11 +9,21 @@ export interface UserProfileDocument {
   uid: string;
   displayName: string;
   email: string | null;
+  phoneNumber?: string | null;
   usn: string;
   branch?: string;
+  degree?: string;
   semester?: string;
   college?: string;
   photoURL?: string | null;
+  preferences?: {
+    theme?: "dark" | "light" | "system";
+    emailNotifications?: boolean;
+    dailyPlanReminder?: boolean;
+    deadlineAlerts?: boolean;
+    examAlerts?: boolean;
+    compactView?: boolean;
+  };
   createdAt: string;
   updatedAt: string;
   lastLoginAt?: string;
@@ -132,7 +142,15 @@ export interface FirestoreNotificationTokenDocument {
   lastUsedAt: string;
 }
 
-export type ScheduleBlockType = "class" | "task" | "event" | "break";
+export type ScheduleBlockType =
+  | "class"
+  | "task"
+  | "event"
+  | "break"
+  | "revision"
+  | "skill"
+  | "review"
+  | "organize";
 
 export interface ScheduleBlock {
   id: string;
@@ -146,6 +164,8 @@ export interface ScheduleBlock {
   reason?: string;
   location?: string;
   isCompleted?: boolean;
+  isAiRecommendation?: boolean;
+  isAccepted?: boolean;
 }
 
 export interface PlanPreferences {
