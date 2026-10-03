@@ -52,6 +52,38 @@ export function clearSession(): void {
   }
 }
 
+/**
+ * Permanently purges all user-specific localStorage caches (deadlines, timetable, exams, events, plans, settings, gcal meta).
+ */
+export function purgeUserLocalCaches(uid?: string, usn?: string): void {
+  try {
+    if (typeof localStorage === "undefined") return;
+
+    localStorage.removeItem(AUTH_STORAGE_KEY);
+
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key) continue;
+
+      if (
+        key.startsWith("deadlineiq_") ||
+        key.includes("google_calendar") ||
+        (uid && key.includes(uid)) ||
+        (usn && key.includes(usn))
+      ) {
+        keysToRemove.push(key);
+      }
+    }
+
+    for (const key of keysToRemove) {
+      localStorage.removeItem(key);
+    }
+  } catch (err) {
+    console.warn("Failed to purge user local caches:", err);
+  }
+}
+
 export function isAuthenticated(): boolean {
   return getSession() !== null;
 }

@@ -11,6 +11,7 @@ import {
   getSession,
   setSession,
   clearSession,
+  purgeUserLocalCaches,
   type AuthUser,
   DEMO_CREDENTIALS,
 } from "@/lib/auth";
@@ -26,8 +27,9 @@ import {
   onFirebaseAuthStateChanged,
   isFirebaseConfigured,
   isAuthCancelledError,
+  getFirebaseAuth,
 } from "@/lib/firebase";
-import { clearGoogleAccessToken } from "@/lib/googleCalendar";
+import { disconnectGoogleCalendar, clearGoogleAccessToken } from "@/lib/googleCalendar";
 
 interface AuthContextType {
   user: AuthUser | null;
@@ -243,28 +245,78 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
+    isAuthenticatingRef.current = true;
+    const currentUid = user?.uid;
+    const currentUsn = user?.usn;
     try {
+      if (currentUid) {
+        await disconnectGoogleCalendar(currentUid);
+      }
       clearGoogleAccessToken();
       await logOutFromFirebase();
     } catch (err) {
       console.warn("Firebase sign out error:", err);
+    } finally {
+      purgeUserLocalCaches(currentUid, currentUsn);
+      clearSession();
+      setUser(null);
+      isAuthenticatingRef.current = false;
     }
-    clearSession();
-    setUser(null);
-  }, []);
+  }, [user]);
 
   const deleteAccount = useCallback(async () => {
     if (!user) return;
-    const uid = user.uid || (user.usn ? `usn_${user.usn}` : "");
-    const email = user.email || null;
+    isAuthenticatingRef.current = true;
+    const currentUid = user.uid;
+    const currentEmail = user.email || undefined;
+    const currentUsn = user.usn;
+
     try {
-      clearGoogleAccessToken();
-      await deleteUserAccount(uid, email);
+      const auth = getFirebaseAuth();
+      const currentUser = auth?.currentUser;
+
+      if (currentUser && currentUid) {
+        try {
+          const idToken = await currentUser.getIdToken(true);
+
+          const res = await fetch("/api/auth/delete-account", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${idToken}`,
+            },
+            body: JSON.stringify({ email: currentEmail }),
+          });
+
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            console.warn("Server delete-account endpoint error:", errData);
+          }
+        } catch (serverErr) {
+          console.warn("Could not execute server deletion:", serverErr);
+        }
+
+        try {
+          await deleteUserAccount(currentUid, currentEmail);
+        } catch {}
+      }
+
+      if (currentUid) {
+        await disconnectGoogleCalendar(currentUid);
+      }
+
+      await logOutFromFirebase();
+      purgeUserLocalCaches(currentUid, currentUsn);
+      clearSession();
+      setUser(null);
     } catch (err) {
       console.warn("Account deletion error:", err);
+      purgeUserLocalCaches(currentUid, currentUsn);
+      clearSession();
+      setUser(null);
+    } finally {
+      isAuthenticatingRef.current = false;
     }
-    clearSession();
-    setUser(null);
   }, [user]);
 
   const updateUserContext = useCallback((updates: Partial<AuthUser>) => {

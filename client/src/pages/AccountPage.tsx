@@ -977,10 +977,9 @@ export default function AccountPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <button
-              type="button"
-              onClick={() => setShowPrivacyModal(true)}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+            <Link
+              href="/privacy"
               className="p-3.5 rounded-xl border border-slate-200 dark:border-border hover:border-blue-400 dark:hover:border-blue-500/40 bg-slate-50/50 dark:bg-[#0c101a] hover:bg-slate-50 dark:hover:bg-surface-elevated text-left transition-all cursor-pointer flex items-center justify-between group"
             >
               <div className="flex items-center gap-3">
@@ -990,16 +989,15 @@ export default function AccountPage() {
                     Privacy Policy
                   </div>
                   <div className="text-[10px] text-slate-500 dark:text-text-muted">
-                    How student data and files are secured
+                    Full privacy policy & data practices
                   </div>
                 </div>
               </div>
               <ChevronRight size={14} className="text-slate-400 group-hover:translate-x-0.5 transition-transform" />
-            </button>
+            </Link>
 
-            <button
-              type="button"
-              onClick={() => setShowTermsModal(true)}
+            <Link
+              href="/terms"
               className="p-3.5 rounded-xl border border-slate-200 dark:border-border hover:border-blue-400 dark:hover:border-blue-500/40 bg-slate-50/50 dark:bg-[#0c101a] hover:bg-slate-50 dark:hover:bg-surface-elevated text-left transition-all cursor-pointer flex items-center justify-between group"
             >
               <div className="flex items-center gap-3">
@@ -1009,12 +1007,66 @@ export default function AccountPage() {
                     Terms of Service
                   </div>
                   <div className="text-[10px] text-slate-500 dark:text-text-muted">
-                    Student usage guidelines and policies
+                    Student usage guidelines
                   </div>
                 </div>
               </div>
               <ChevronRight size={14} className="text-slate-400 group-hover:translate-x-0.5 transition-transform" />
-            </button>
+            </Link>
+
+            <Link
+              href="/cookies"
+              className="p-3.5 rounded-xl border border-slate-200 dark:border-border hover:border-blue-400 dark:hover:border-blue-500/40 bg-slate-50/50 dark:bg-[#0c101a] hover:bg-slate-50 dark:hover:bg-surface-elevated text-left transition-all cursor-pointer flex items-center justify-between group"
+            >
+              <div className="flex items-center gap-3">
+                <Shield size={18} className="text-emerald-600 dark:text-emerald-400" />
+                <div>
+                  <div className="text-xs font-semibold text-slate-900 dark:text-white group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
+                    Storage &amp; Cookies
+                  </div>
+                  <div className="text-[10px] text-slate-500 dark:text-text-muted">
+                    localStorage &amp; zero tracking
+                  </div>
+                </div>
+              </div>
+              <ChevronRight size={14} className="text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+            </Link>
+
+            <Link
+              href="/delete-account"
+              className="p-3.5 rounded-xl border border-slate-200 dark:border-border hover:border-rose-400 dark:hover:border-rose-500/40 bg-slate-50/50 dark:bg-[#0c101a] hover:bg-slate-50 dark:hover:bg-surface-elevated text-left transition-all cursor-pointer flex items-center justify-between group"
+            >
+              <div className="flex items-center gap-3">
+                <Trash2 size={18} className="text-rose-600 dark:text-rose-400" />
+                <div>
+                  <div className="text-xs font-semibold text-slate-900 dark:text-white group-hover:text-rose-600 dark:group-hover:text-rose-400 transition-colors">
+                    Data Deletion Page
+                  </div>
+                  <div className="text-[10px] text-slate-500 dark:text-text-muted">
+                    Public deletion request portal
+                  </div>
+                </div>
+              </div>
+              <ChevronRight size={14} className="text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+            </Link>
+
+            <Link
+              href="/contact"
+              className="p-3.5 rounded-xl border border-slate-200 dark:border-border hover:border-blue-400 dark:hover:border-blue-500/40 bg-slate-50/50 dark:bg-[#0c101a] hover:bg-slate-50 dark:hover:bg-surface-elevated text-left transition-all cursor-pointer flex items-center justify-between group"
+            >
+              <div className="flex items-center gap-3">
+                <Mail size={18} className="text-sky-600 dark:text-sky-400" />
+                <div>
+                  <div className="text-xs font-semibold text-slate-900 dark:text-white group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors">
+                    Contact &amp; Privacy Support
+                  </div>
+                  <div className="text-[10px] text-slate-500 dark:text-text-muted">
+                    Support and privacy contacts
+                  </div>
+                </div>
+              </div>
+              <ChevronRight size={14} className="text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+            </Link>
           </div>
         </section>
 
@@ -1225,23 +1277,14 @@ export default function AccountPage() {
 
       {/* Footer */}
       <footer className="relative z-10 w-full border-t border-slate-200/80 dark:border-border py-4 mt-auto">
-        <div className="max-w-[1140px] mx-auto px-4 sm:px-6 md:px-12 flex items-center justify-between text-xs text-slate-500 dark:text-text-muted font-mono">
+        <div className="max-w-[1140px] mx-auto px-4 sm:px-6 md:px-12 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500 dark:text-text-muted font-mono">
           <div>© 2026 DeadlineIQ · Student Workspace</div>
-          <div className="flex items-center gap-4">
-            <button
-              type="button"
-              onClick={() => setShowPrivacyModal(true)}
-              className="hover:text-slate-800 dark:hover:text-white cursor-pointer"
-            >
-              Privacy
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowTermsModal(true)}
-              className="hover:text-slate-800 dark:hover:text-white cursor-pointer"
-            >
-              Terms
-            </button>
+          <div className="flex flex-wrap items-center gap-4">
+            <Link href="/privacy" className="hover:text-slate-800 dark:hover:text-white transition-colors">Privacy</Link>
+            <Link href="/terms" className="hover:text-slate-800 dark:hover:text-white transition-colors">Terms</Link>
+            <Link href="/cookies" className="hover:text-slate-800 dark:hover:text-white transition-colors">Cookies &amp; Storage</Link>
+            <Link href="/delete-account" className="hover:text-slate-800 dark:hover:text-white transition-colors">Data Deletion</Link>
+            <Link href="/contact" className="hover:text-slate-800 dark:hover:text-white transition-colors">Contact</Link>
           </div>
         </div>
       </footer>

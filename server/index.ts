@@ -4,6 +4,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { aiService } from "./ai";
 import { checkAccount, registerAccount, unregisterAccount } from "./accounts";
+import { getAdminAuth, getAdminFirestore, getAdminStorage } from "./firebaseAdmin";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -275,6 +276,85 @@ async function startServer() {
       unregisterAccount(cleanEmail);
     }
     res.json({ success: true });
+  });
+
+  // Secure Server-Side Account & Data Deletion Endpoint
+  app.post("/api/auth/delete-account", async (req, res) => {
+    try {
+      const authHeader = req.headers.authorization || "";
+      const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+
+      const adminAuth = getAdminAuth();
+      const adminDb = getAdminFirestore();
+      const adminStorage = getAdminStorage();
+
+      if (!token) {
+        return res.status(401).json({ error: "Missing authentication bearer token." });
+      }
+
+      let uid = "";
+      let email = (req.body?.email || "").toLowerCase().trim();
+
+      if (adminAuth) {
+        try {
+          const decoded = await adminAuth.verifyIdToken(token);
+          uid = decoded.uid;
+          if (decoded.email) {
+            email = decoded.email.toLowerCase().trim();
+          }
+        } catch (err: any) {
+          console.warn("Verify ID token warning:", err?.message || err);
+          return res.status(401).json({ error: "Invalid or expired authentication token." });
+        }
+      }
+
+      if (!uid) {
+        return res.status(401).json({ error: "Could not verify authenticated user." });
+      }
+
+      // 1. Delete Firestore Document and Subcollections
+      if (adminDb) {
+        try {
+          const userDocRef = adminDb.collection("users").doc(uid);
+          await adminDb.recursiveDelete(userDocRef);
+        } catch (err) {
+          console.warn(`Firestore recursive delete warning for ${uid}:`, err);
+        }
+      }
+
+      // 2. Delete Storage Files
+      if (adminStorage) {
+        try {
+          const bucket = adminStorage.bucket();
+          await bucket.deleteFiles({ prefix: `users/${uid}/` });
+        } catch (err) {
+          console.warn(`Storage delete files warning for ${uid}:`, err);
+        }
+      }
+
+      // 3. Unregister from Server Registry
+      if (email) {
+        unregisterAccount(email);
+      }
+
+      // 4. Delete Firebase Auth User
+      if (adminAuth) {
+        try {
+          await adminAuth.deleteUser(uid);
+        } catch (err) {
+          console.warn(`Admin deleteUser warning for ${uid}:`, err);
+        }
+      }
+
+      res.json({
+        success: true,
+        message: "Account, Firestore records, Storage files, and auth credentials permanently deleted.",
+        uid,
+      });
+    } catch (error: any) {
+      console.error("Account deletion endpoint error:", error);
+      res.status(500).json({ error: "Server account deletion failed. Please try again." });
+    }
   });
 
   // Serve static files from dist/public in production

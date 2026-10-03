@@ -969,9 +969,15 @@ export default function Login() {
       </main>
 
       {/* Footer */}
-      <footer className="relative z-10 w-full max-w-[1376px] mx-auto px-6 md:px-12 py-4 flex items-center justify-between text-[11px] text-[#647080] font-mono">
+      <footer className="relative z-10 w-full max-w-[1376px] mx-auto px-6 md:px-12 py-4 flex flex-col sm:flex-row items-center justify-between gap-3 text-[11px] text-[#647080] font-mono">
         <div>© 2026 DeadlineIQ · Academic planning, intelligently.</div>
-        <div className="hidden sm:block">STUDENT WORKSPACE</div>
+        <div className="flex flex-wrap items-center gap-3">
+          <Link href="/privacy" className="hover:text-[#aee7f9] transition-colors">Privacy</Link>
+          <Link href="/terms" className="hover:text-[#aee7f9] transition-colors">Terms</Link>
+          <Link href="/cookies" className="hover:text-[#aee7f9] transition-colors">Cookies &amp; Storage</Link>
+          <Link href="/delete-account" className="hover:text-[#aee7f9] transition-colors">Data Deletion</Link>
+          <Link href="/contact" className="hover:text-[#aee7f9] transition-colors">Contact</Link>
+        </div>
       </footer>
     </motion.div>
   );

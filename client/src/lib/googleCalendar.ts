@@ -60,6 +60,27 @@ let cachedAccessToken: string | null = null;
 let tokenExpiresAt: number = 0; // Unix timestamp ms
 
 /**
+ * Automatically purges any legacy persisted Google OAuth access tokens from localStorage on load.
+ */
+export function purgeLegacyPersistedTokens(): void {
+  try {
+    if (typeof localStorage !== "undefined") {
+      const legacyKeys = [
+        "deadlineiq_google_calendar_token",
+        "deadlineiq_gcal_token",
+        "google_calendar_token",
+        "gcal_access_token",
+      ];
+      for (const key of legacyKeys) {
+        localStorage.removeItem(key);
+      }
+    }
+  } catch {}
+}
+
+purgeLegacyPersistedTokens();
+
+/**
  * Gets the OAuth Client ID from environment variables or applet configuration.
  * Strictly never hardcodes secrets or client IDs in source code.
  */

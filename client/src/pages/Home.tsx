@@ -23,7 +23,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { useLocation } from "wouter";
+import { Link, useLocation } from "wouter";
 
 type LogoProps = { compact?: boolean };
 
@@ -583,7 +583,16 @@ function Footer() {
     <footer className="site-footer">
       <div className="footer-inner">
         <div className="footer-brand"><Logo compact /><span>AI-powered academic planning.<br />A little more room to think.</span></div>
-        <div className="footer-links"><a href="#product">Product</a><a href="#features">Features</a><a href="#how-it-works">How it works</a><a href="#about">About</a></div>
+        <div className="footer-links">
+          <a href="#product">Product</a>
+          <a href="#features">Features</a>
+          <a href="#how-it-works">How it works</a>
+          <Link href="/privacy">Privacy Policy</Link>
+          <Link href="/terms">Terms of Service</Link>
+          <Link href="/cookies">Storage Policy</Link>
+          <Link href="/delete-account">Data Deletion</Link>
+          <Link href="/contact">Contact</Link>
+        </div>
         <div className="footer-bottom"><span>© 2026 DeadlineIQ · Built for students.</span><span>LESS SCRAMBLING. MORE SEMESTER.</span></div>
       </div>
     </footer>
