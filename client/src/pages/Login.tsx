@@ -27,9 +27,7 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import {
   getReadableFirebaseErrorMessage,
-  isUnauthorizedDomainError,
   isAuthCancelledError,
-  getFirebaseConfig,
 } from "@/lib/firebase";
 
 function GoogleIcon({ className = "w-4 h-4" }: { className?: string }) {
@@ -96,10 +94,6 @@ export default function Login() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
-  const [unauthorizedDomain, setUnauthorizedDomain] = useState<string | null>(null);
-  const [copiedDomain, setCopiedDomain] = useState(false);
-
-  const firebaseProjectId = getFirebaseConfig().projectId || "deadlineiq-3a3b5";
 
   // If already authenticated, redirect to dashboard
   useEffect(() => {
@@ -107,26 +101,6 @@ export default function Login() {
       setLocation("/dashboard");
     }
   }, [user, authLoading, setLocation]);
-
-  const handleCopyDomain = async () => {
-    if (!unauthorizedDomain) return;
-    try {
-      if (navigator?.clipboard?.writeText) {
-        await navigator.clipboard.writeText(unauthorizedDomain);
-      } else {
-        const textarea = document.createElement("textarea");
-        textarea.value = unauthorizedDomain;
-        document.body.appendChild(textarea);
-        textarea.select();
-        document.execCommand("copy");
-        document.body.removeChild(textarea);
-      }
-      setCopiedDomain(true);
-      setTimeout(() => setCopiedDomain(false), 2500);
-    } catch (e) {
-      console.warn("Could not copy domain to clipboard:", e);
-    }
-  };
 
   const handleGoogleSignIn = async () => {
     setError(null);
@@ -143,17 +117,8 @@ export default function Login() {
       if (isAuthCancelledError(err)) {
         return;
       }
-
-      const isDomainIssue = isUnauthorizedDomainError(err);
-      if (isDomainIssue) {
-        console.warn("Google sign-in requires domain authorization:", err?.message || err);
-        const host = typeof window !== "undefined" ? window.location.hostname : "current-domain";
-        setUnauthorizedDomain(host);
-        setError(null);
-      } else {
-        console.warn("Google sign-in prevented:", err?.message || err);
-        setError(getReadableFirebaseErrorMessage(err));
-      }
+      console.warn("Google sign-in error:", err?.message || err);
+      setError(getReadableFirebaseErrorMessage(err));
     } finally {
       setIsGoogleSubmitting(false);
     }
@@ -399,76 +364,7 @@ export default function Login() {
 
               {/* Error or Success Banners */}
               <AnimatePresence>
-                {unauthorizedDomain && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -6 }}
-                    role="alert"
-                    className="p-4 mb-5 rounded-xl border border-amber-500/35 bg-[#17140e] text-[#fef3c7] text-xs shadow-[0_8px_30px_rgba(245,158,11,0.12)] relative"
-                  >
-                    <div className="flex items-start justify-between gap-3 mb-2">
-                      <div className="flex items-center gap-2">
-                        <span className="p-1 rounded-md bg-amber-500/20 text-amber-300">
-                          <ShieldAlert size={15} />
-                        </span>
-                        <span className="font-semibold text-xs sm:text-sm text-[#fef3c7] font-['Space_Grotesk',sans-serif]">
-                          Firebase Domain Authorization Required
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setUnauthorizedDomain(null)}
-                        className="text-amber-400/60 hover:text-amber-200 transition-colors p-1 -mr-1 -mt-1 cursor-pointer"
-                        aria-label="Dismiss banner"
-                      >
-                        <X size={15} />
-                      </button>
-                    </div>
-
-                    <p className="text-amber-200/80 leading-relaxed mb-3 text-[11px] sm:text-xs">
-                      Firebase Google Sign-In requires your app's web domain to be added to Authorized Domains in your Firebase console.
-                    </p>
-
-                    {/* Domain Box */}
-                    <div className="bg-[#0b0906] border border-amber-500/25 rounded-lg p-2 flex items-center justify-between gap-2 mb-3">
-                      <code className="font-mono text-[11px] text-amber-200 truncate select-all px-1">
-                        {unauthorizedDomain}
-                      </code>
-                      <button
-                        type="button"
-                        onClick={handleCopyDomain}
-                        className="flex-shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/30 text-amber-100 font-medium text-[11px] transition-all cursor-pointer active:scale-95"
-                      >
-                        {copiedDomain ? (
-                          <>
-                            <Check size={12} className="text-emerald-400" />
-                            <span className="text-emerald-300">Copied!</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy size={12} />
-                            <span>Copy Domain</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-
-                    <div className="pt-2 border-t border-amber-500/20">
-                      <a
-                        href={`https://console.firebase.google.com/project/${firebaseProjectId}/authentication/settings`}
-                        target="_blank"
-                        rel="noreferrer noopener"
-                        className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-[#0c0a06] font-semibold text-xs transition-colors shadow-sm cursor-pointer"
-                      >
-                        <span>Open Firebase Settings</span>
-                        <ExternalLink size={12} />
-                      </a>
-                    </div>
-                  </motion.div>
-                )}
-
-                {error && !unauthorizedDomain && (
+                {error && (
                   <motion.div
                     initial={{ opacity: 0, y: -6 }}
                     animate={{ opacity: 1, y: 0 }}
