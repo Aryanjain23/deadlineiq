@@ -9,9 +9,9 @@ import {
   PlanMyDayPayload,
   GeneratedScheduleBlock,
   AIError,
-} from "./types";
-import { GeminiProviderAdapter } from "./gemini-adapter";
-import { OpenRouterProviderAdapter } from "./openrouter-adapter";
+} from "./types.js";
+import { GeminiProviderAdapter } from "./gemini-adapter.js";
+import { OpenRouterProviderAdapter } from "./openrouter-adapter.js";
 
 export class AIService {
   private adapters: Map<AIProvider, AIProviderAdapter> = new Map();

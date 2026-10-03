@@ -10,15 +10,15 @@ import {
   PlanMyDayPayload,
   GeneratedScheduleBlock,
   AIError,
-} from "./types";
+} from "./types.js";
 import {
   safeParseJson,
   validateExtractedDeadlines,
   validateExtractedTimetable,
   validateExtractedExams,
   validateScheduleBlocks,
-} from "./validator";
-import { extractTextFromPdf, cleanPdfText } from "./pdf-parser";
+} from "./validator.js";
+import { extractTextFromPdf, cleanPdfText } from "./pdf-parser.js";
 
 const OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
 

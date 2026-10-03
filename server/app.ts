@@ -1,7 +1,7 @@
 import express from "express";
-import { aiService } from "./ai";
-import { checkAccount, registerAccount, unregisterAccount } from "./accounts";
-import { getAdminAuth, getAdminFirestore, getAdminStorage } from "./firebaseAdmin";
+import { aiService } from "./ai/index.js";
+import { checkAccount, registerAccount, unregisterAccount } from "./accounts.js";
+import { getAdminAuth, getAdminFirestore, getAdminStorage } from "./firebaseAdmin.js";
 
 export const app = express();
 

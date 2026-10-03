@@ -5,7 +5,7 @@ import {
   GeneratedScheduleBlock,
   ScheduleBlockType,
   AIError,
-} from "./types";
+} from "./types.js";
 
 const VALID_DAYS = [
   "Monday",

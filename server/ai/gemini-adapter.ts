@@ -11,15 +11,15 @@ import {
   PlanMyDayPayload,
   GeneratedScheduleBlock,
   AIError,
-} from "./types";
+} from "./types.js";
 import {
   safeParseJson,
   validateExtractedDeadlines,
   validateExtractedTimetable,
   validateExtractedExams,
   validateScheduleBlocks,
-} from "./validator";
-import { extractTextFromPdf, cleanPdfText } from "./pdf-parser";
+} from "./validator.js";
+import { extractTextFromPdf, cleanPdfText } from "./pdf-parser.js";
 
 const CANDIDATE_MODELS = [
   "gemini-2.5-flash",
