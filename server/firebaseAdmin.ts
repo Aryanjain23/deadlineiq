@@ -1,22 +1,19 @@
 import fs from "node:fs";
 import path from "node:path";
-import { getApps, initializeApp, type App } from "firebase-admin/app";
-import { getAuth, type Auth } from "firebase-admin/auth";
-import { getFirestore, type Firestore } from "firebase-admin/firestore";
-import { getStorage, type Storage } from "firebase-admin/storage";
 
-let adminApp: App | null = null;
+let adminApp: any = null;
 
-export function getAdminApp(): App | null {
+export async function getAdminApp(): Promise<any> {
   if (adminApp) return adminApp;
 
-  const existingApps = getApps();
-  if (existingApps.length > 0 && existingApps[0]) {
-    adminApp = existingApps[0];
-    return adminApp;
-  }
-
   try {
+    const { getApps, initializeApp } = await import("firebase-admin/app");
+    const existingApps = getApps();
+    if (existingApps.length > 0 && existingApps[0]) {
+      adminApp = existingApps[0];
+      return adminApp;
+    }
+
     const configPath = path.resolve(process.cwd(), "firebase-applet-config.json");
     let projectId =
       process.env.VITE_FIREBASE_PROJECT_ID ||
@@ -47,32 +44,38 @@ export function getAdminApp(): App | null {
   }
 }
 
-export function getAdminAuth(): Auth | null {
-  const app = getAdminApp();
+export async function getAdminAuth(): Promise<any> {
+  const app = await getAdminApp();
   if (!app) return null;
   try {
+    const { getAuth } = await import("firebase-admin/auth");
     return getAuth(app);
-  } catch {
+  } catch (err) {
+    console.warn("Failed to get Admin Auth:", err);
     return null;
   }
 }
 
-export function getAdminFirestore(): Firestore | null {
-  const app = getAdminApp();
+export async function getAdminFirestore(): Promise<any> {
+  const app = await getAdminApp();
   if (!app) return null;
   try {
+    const { getFirestore } = await import("firebase-admin/firestore");
     return getFirestore(app);
-  } catch {
+  } catch (err) {
+    console.warn("Failed to get Admin Firestore:", err);
     return null;
   }
 }
 
-export function getAdminStorage(): Storage | null {
-  const app = getAdminApp();
+export async function getAdminStorage(): Promise<any> {
+  const app = await getAdminApp();
   if (!app) return null;
   try {
+    const { getStorage } = await import("firebase-admin/storage");
     return getStorage(app);
-  } catch {
+  } catch (err) {
+    console.warn("Failed to get Admin Storage:", err);
     return null;
   }
 }

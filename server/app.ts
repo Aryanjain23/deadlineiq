@@ -279,9 +279,9 @@ app.post("/api/auth/delete-account", async (req, res) => {
     const authHeader = req.headers.authorization || "";
     const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
 
-    const adminAuth = getAdminAuth();
-    const adminDb = getAdminFirestore();
-    const adminStorage = getAdminStorage();
+    const adminAuth = await getAdminAuth();
+    const adminDb = await getAdminFirestore();
+    const adminStorage = await getAdminStorage();
 
     if (!token) {
       return res.status(401).json({ error: "Missing authentication bearer token." });
