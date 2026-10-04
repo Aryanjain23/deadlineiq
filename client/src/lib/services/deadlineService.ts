@@ -12,6 +12,7 @@ import {
   getFirebaseAuth,
   handleFirestoreError,
   OperationType,
+  sanitizeForFirestore,
 } from "@/lib/firebase";
 import {
   loadDeadlines,
@@ -136,7 +137,7 @@ export async function createDeadline(
     const docRef = getDeadlineDocRef(uid, deadline.id);
     if (docRef) {
       try {
-        await setDoc(docRef, normalized, { merge: true });
+        await setDoc(docRef, sanitizeForFirestore(normalized), { merge: true });
       } catch (error) {
         handleFirestoreError(error, OperationType.WRITE, `users/${uid}/deadlines/${deadline.id}`, getFirebaseAuth()?.currentUser);
       }
@@ -167,10 +168,10 @@ export async function updateDeadline(
       try {
         await setDoc(
           docRef,
-          {
+          sanitizeForFirestore({
             ...updates,
             updatedAt: new Date().toISOString(),
-          },
+          }),
           { merge: true }
         );
       } catch (error) {

@@ -1,5 +1,5 @@
 import { doc, setDoc } from "firebase/firestore";
-import { getFirebaseDb, getDeadlinesCollectionRef, getTimetableCollectionRef, getUserDocRef } from "./firestore";
+import { getFirebaseDb, getDeadlinesCollectionRef, getTimetableCollectionRef, getUserDocRef, sanitizeForFirestore } from "./firestore";
 import { loadDeadlines, type Deadline } from "@/lib/deadlines";
 import { loadTimetable, type TimetableEntry } from "@/lib/timetable";
 import type { FirestoreDeadlineDocument, FirestoreTimetableDocument, UserProfileDocument } from "./types";
@@ -67,7 +67,7 @@ export async function migrateLocalStorageToFirestore(
         createdAt: userProfile?.createdAt || now,
         updatedAt: now,
       };
-      await setDoc(userRef, profileData, { merge: true });
+      await setDoc(userRef, sanitizeForFirestore(profileData), { merge: true });
     }
 
     // 2. Migrate Local Deadlines (only legitimate user-created items)
@@ -95,7 +95,7 @@ export async function migrateLocalStorageToFirestore(
           confidence: d.confidence,
           timetableDerived: d.timetableDerived,
         };
-        await setDoc(deadlineDocRef, firestoreDeadline, { merge: true });
+        await setDoc(deadlineDocRef, sanitizeForFirestore(firestoreDeadline), { merge: true });
         deadlinesMigrated++;
       }
     }
@@ -118,7 +118,7 @@ export async function migrateLocalStorageToFirestore(
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         };
-        await setDoc(timetableDocRef, firestoreEntry, { merge: true });
+        await setDoc(timetableDocRef, sanitizeForFirestore(firestoreEntry), { merge: true });
         timetableMigrated++;
       }
     }

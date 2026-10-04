@@ -12,6 +12,7 @@ import {
   getFirebaseAuth,
   handleFirestoreError,
   OperationType,
+  sanitizeForFirestore,
 } from "@/lib/firebase";
 import {
   loadEvents,
@@ -124,7 +125,7 @@ export async function createEvent(
     const docRef = getEventDocRef(uid, event.id);
     if (docRef) {
       try {
-        await setDoc(docRef, normalized, { merge: true });
+        await setDoc(docRef, sanitizeForFirestore(normalized), { merge: true });
       } catch (error) {
         handleFirestoreError(error, OperationType.WRITE, `users/${uid}/events/${event.id}`, getFirebaseAuth()?.currentUser);
       }
@@ -155,10 +156,10 @@ export async function updateEvent(
       try {
         await setDoc(
           docRef,
-          {
+          sanitizeForFirestore({
             ...updates,
             updatedAt: new Date().toISOString(),
-          },
+          }),
           { merge: true }
         );
       } catch (error) {

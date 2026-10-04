@@ -112,6 +112,10 @@ export interface PlanMyDayCompletedTask {
 export interface PlanMyDayPayload {
   currentDate: string; // YYYY-MM-DD
   currentTime: string; // HH:mm
+  currentIsoTimestamp?: string;
+  timeZone?: string;
+  planningStartIso?: string;
+  planningEndIso?: string;
   preferences: {
     startTime: string; // HH:mm
     endTime: string; // HH:mm

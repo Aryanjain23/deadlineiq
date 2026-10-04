@@ -249,57 +249,28 @@ export function safeParseJson<T = any>(rawText: string): T {
   // Strategy 4: Extract all individual valid objects
   const recoveredObjects = extractAllCompleteObjects(cleaned);
   if (recoveredObjects.length > 0) {
+    // If the single recovered object is a top-level wrapper containing deadlines, return it directly
+    if (recoveredObjects.length === 1 && recoveredObjects[0] && typeof recoveredObjects[0] === "object") {
+      const topObj = recoveredObjects[0];
+      if (
+        Array.isArray(topObj.deadlines) ||
+        Array.isArray(topObj.tasks) ||
+        Array.isArray(topObj.assignments) ||
+        Array.isArray(topObj.items) ||
+        Array.isArray(topObj.entries) ||
+        Array.isArray(topObj.exams) ||
+        Array.isArray(topObj.blocks)
+      ) {
+        return topObj as unknown as T;
+      }
+    }
+
     return {
       entries: recoveredObjects,
       exams: recoveredObjects,
       deadlines: recoveredObjects,
       classes: recoveredObjects,
       blocks: recoveredObjects,
-    } as unknown as T;
-  }
-
-  // Strategy 5: Parse plain text / markdown response into structured items
-  const lines = rawText
-    .split(/\r?\n/)
-    .map((l) => l.trim().replace(/^[*#\-\d\s.:>]+/, "").trim())
-    .filter((l) => l.length >= 4 && !l.startsWith("{") && !l.startsWith("}") && !l.toLowerCase().includes("json"));
-
-  if (lines.length > 0) {
-    const textObjects = lines.slice(0, 10).map((line) => {
-      const isNextClass = line.toLowerCase().includes("next class") || line.toLowerCase().includes("next lab");
-      let explicitDueDate: string | null = null;
-      let hasExplicitDate = false;
-
-      const isoMatch = line.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
-      if (isoMatch) {
-        explicitDueDate = isoMatch[0];
-        hasExplicitDate = true;
-      }
-
-      return {
-        taskName: line.slice(0, 100),
-        subject: "Academic Notice",
-        hasExplicitDate,
-        explicitDueDate,
-        explicitDueDayOfWeek: null,
-        isRelativeClassMention: isNextClass,
-        dueTime: null,
-        importance: "MEDIUM",
-        description: line,
-        confidenceLevel: "MEDIUM",
-        geminiReasoning: "Extracted from notice text.",
-        sourceType: "CLASS_NOTICE",
-        isDateAmbiguous: !hasExplicitDate && !isNextClass,
-        ambiguityNote: hasExplicitDate || isNextClass ? null : "No explicit date specified in notice.",
-        notes: null,
-      };
-    });
-
-    return {
-      deadlines: textObjects,
-      entries: textObjects,
-      exams: textObjects,
-      blocks: textObjects,
     } as unknown as T;
   }
 
@@ -622,12 +593,23 @@ export function validateExtractedDeadlines(data: any): ExtractedDeadline[] {
       list = data.deadlines;
     } else if (Array.isArray(data.tasks)) {
       list = data.tasks;
-    } else if (Array.isArray(data.items)) {
-      list = data.items;
     } else if (Array.isArray(data.assignments)) {
       list = data.assignments;
+    } else if (Array.isArray(data.items)) {
+      list = data.items;
     } else if (Array.isArray(data.data)) {
       list = data.data;
+    }
+  }
+
+  // Handle double-nested object wrapper e.g. [ { deadlines: [...] } ]
+  if (Array.isArray(list) && list.length === 1 && list[0] && typeof list[0] === "object") {
+    if (Array.isArray(list[0].deadlines)) {
+      list = list[0].deadlines;
+    } else if (Array.isArray(list[0].tasks)) {
+      list = list[0].tasks;
+    } else if (Array.isArray(list[0].assignments)) {
+      list = list[0].assignments;
     }
   }
 
@@ -635,41 +617,127 @@ export function validateExtractedDeadlines(data: any): ExtractedDeadline[] {
     return [];
   }
 
+  const REJECT_TERMS = new Set([
+    "deadlines", "tasks", "items", "assignments", "taskname", "subject", "course",
+    "hasexplicitdate", "explicitduedate", "explicitduedayofweek", "isrelativeclassmention",
+    "relativeclassmention", "duetime", "importance", "description", "confidencelevel",
+    "geminireasoning", "sourcetype", "isdateambiguous", "ambiguitynote", "notes", "title",
+    "name", "null", "undefined", "true", "false", "object", "array", "usersafety", "safety",
+    "safe", "unsafe", "academic notice", "academicnotice"
+  ]);
+
   const validated: ExtractedDeadline[] = [];
 
   for (const item of list) {
-    if (!item || typeof item !== "object") continue;
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
 
-    const taskName = String(item.taskName || item.title || item.name || "").trim();
-    if (!taskName) continue;
+    // 1. Task Name Extraction and Cleaning
+    let rawTaskName = String(item.taskName || item.title || item.name || item.task || "").trim();
+    rawTaskName = rawTaskName.replace(/^["'`]+|["'`]+$/g, "").trim();
 
-    const subject = String(item.subject || item.course || "Coursework").trim();
+    if (!rawTaskName) continue;
 
+    const lowerTaskName = rawTaskName.toLowerCase();
+
+    // Reject exact property keys or type names
+    if (REJECT_TERMS.has(lowerTaskName)) {
+      continue;
+    }
+
+    // Reject JSON key-value pair syntax or moderation/refusal artifacts
+    if (
+      lowerTaskName.includes('":') ||
+      lowerTaskName.includes('": ') ||
+      lowerTaskName.includes('"taskname":') ||
+      lowerTaskName.includes('"subject":') ||
+      lowerTaskName.includes('"hasexplicitdate"') ||
+      lowerTaskName.includes('"explicitduedate"') ||
+      lowerTaskName.includes('"duetime"') ||
+      lowerTaskName.includes('"deadlines"') ||
+      lowerTaskName.includes('user safety') ||
+      lowerTaskName.includes('content blocked') ||
+      lowerTaskName.includes('provider refusal')
+    ) {
+      continue;
+    }
+
+    if (rawTaskName.length < 3 || /^[{}\[\]:,\s]+$/.test(rawTaskName)) {
+      continue;
+    }
+
+    // 2. Subject Extraction (Preserve genuine subject, e.g. "Yoga", never override with "Academic Notice")
+    let subject = "General Academic";
+    if (item.subject && typeof item.subject === "string") {
+      const cleanSub = item.subject.trim().replace(/^["'`]+|["'`]+$/g, "");
+      const lowerSub = cleanSub.toLowerCase();
+      if (
+        cleanSub &&
+        cleanSub !== "Academic Notice" &&
+        !REJECT_TERMS.has(lowerSub) &&
+        !lowerSub.includes('":') &&
+        !lowerSub.includes('user safety')
+      ) {
+        subject = cleanSub;
+      }
+    } else if (item.course && typeof item.course === "string") {
+      const cleanCourse = item.course.trim().replace(/^["'`]+|["'`]+$/g, "");
+      const lowerCourse = cleanCourse.toLowerCase();
+      if (
+        cleanCourse &&
+        cleanCourse !== "Academic Notice" &&
+        !REJECT_TERMS.has(lowerCourse) &&
+        !lowerCourse.includes('":')
+      ) {
+        subject = cleanCourse;
+      }
+    }
+
+    // 3. Date Handling
     let explicitDueDate: string | null = null;
     let hasExplicitDate = Boolean(item.hasExplicitDate);
 
-    if (item.explicitDueDate && typeof item.explicitDueDate === "string") {
-      const trimmedDate = item.explicitDueDate.trim();
+    if (item.explicitDueDate && typeof item.explicitDueDate === "string" && item.explicitDueDate !== "null") {
+      const trimmedDate = item.explicitDueDate.trim().replace(/^["'`]+|["'`]+$/g, "");
       if (/^\d{4}-\d{2}-\d{2}$/.test(trimmedDate)) {
         explicitDueDate = trimmedDate;
+        hasExplicitDate = true;
+      } else {
+        const dmyMatch = trimmedDate.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})$/);
+        if (dmyMatch) {
+          const day = dmyMatch[1].padStart(2, "0");
+          const month = dmyMatch[2].padStart(2, "0");
+          const year = dmyMatch[3];
+          explicitDueDate = `${year}-${month}-${day}`;
+          hasExplicitDate = true;
+        } else {
+          const timestamp = Date.parse(trimmedDate);
+          if (!isNaN(timestamp)) {
+            const d = new Date(timestamp);
+            explicitDueDate = d.toISOString().split("T")[0];
+            hasExplicitDate = true;
+          }
+        }
+      }
+    } else if (item.date || item.dueDate) {
+      const rawD = String(item.date || item.dueDate).trim().replace(/^["'`]+|["'`]+$/g, "");
+      if (/^\d{4}-\d{2}-\d{2}$/.test(rawD)) {
+        explicitDueDate = rawD;
         hasExplicitDate = true;
       }
     }
 
     let explicitDueDayOfWeek: string | null = null;
     if (item.explicitDueDayOfWeek && typeof item.explicitDueDayOfWeek === "string") {
-      const normalizedDay = item.explicitDueDayOfWeek.trim().toLowerCase();
-      const matchedDay = VALID_DAYS.find((d) => d.toLowerCase() === normalizedDay);
-      if (matchedDay) {
-        explicitDueDayOfWeek = matchedDay;
-      }
+      explicitDueDayOfWeek = normalizeDayOfWeek(item.explicitDueDayOfWeek);
     }
 
+    // 4. Time Handling (Keep null if not specified, do NOT force 23:59)
     let dueTime: string | null = null;
-    if (item.dueTime && typeof item.dueTime === "string") {
+    if (item.dueTime && typeof item.dueTime === "string" && item.dueTime !== "null" && item.dueTime !== "undefined") {
       dueTime = parseTimeString(item.dueTime);
     }
 
+    // 5. Importance & Confidence
     let importance: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" = "MEDIUM";
     if (item.importance && typeof item.importance === "string") {
       const normalizedImp = item.importance.trim().toUpperCase();
@@ -700,27 +768,31 @@ export function validateExtractedDeadlines(data: any): ExtractedDeadline[] {
       }
     }
 
+    const isRelativeClassMention = Boolean(
+      item.isRelativeClassMention || item.relativeClassMention
+    );
+
     const isDateAmbiguous = Boolean(
       item.isDateAmbiguous ||
-      (!hasExplicitDate && !item.isRelativeClassMention) ||
+      (!hasExplicitDate && !isRelativeClassMention) ||
       (item.ambiguityNote && String(item.ambiguityNote).trim().length > 0)
     );
 
     const ambiguityNote = item.ambiguityNote
       ? String(item.ambiguityNote).trim()
-      : !hasExplicitDate && !item.isRelativeClassMention
+      : !hasExplicitDate && !isRelativeClassMention
       ? "No explicit calendar date was specified in this notice."
       : null;
 
     const notes = item.notes ? String(item.notes).trim() : null;
 
     validated.push({
-      taskName,
+      taskName: rawTaskName,
       subject,
       hasExplicitDate,
       explicitDueDate,
       explicitDueDayOfWeek,
-      isRelativeClassMention: Boolean(item.isRelativeClassMention),
+      isRelativeClassMention,
       dueTime,
       importance,
       description,
@@ -736,10 +808,19 @@ export function validateExtractedDeadlines(data: any): ExtractedDeadline[] {
   return validated;
 }
 
+function timeToMinutes(timeStr: string): number {
+  const [h, m] = (timeStr || "00:00").split(":").map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
 /**
- * Validates and sanitizes daily schedule blocks from model output.
+ * Validates and sanitizes daily schedule blocks from model output,
+ * strictly enforcing the planning window constraints and cross-midnight sorting.
  */
-export function validateScheduleBlocks(data: any): GeneratedScheduleBlock[] {
+export function validateScheduleBlocks(
+  data: any,
+  payload?: any
+): GeneratedScheduleBlock[] {
   let blocksArray: any[] = [];
 
   if (data && Array.isArray(data.blocks)) {
@@ -756,6 +837,22 @@ export function validateScheduleBlocks(data: any): GeneratedScheduleBlock[] {
     return [];
   }
 
+  // Parse time window if payload is provided
+  const currentTimeStr = payload?.currentTime ? parseTimeString(payload.currentTime) : null;
+  const startTimeStr = payload?.preferences?.startTime
+    ? parseTimeString(payload.preferences.startTime)
+    : currentTimeStr;
+
+  const startMins = startTimeStr ? timeToMinutes(startTimeStr) : null;
+  const windowDurationMins = 9 * 60; // 9-hour hard window
+  const endWindowMins = startMins !== null ? startMins + windowDurationMins : null;
+
+  const getOffsetMins = (timeStr: string) => {
+    const mins = timeToMinutes(timeStr);
+    if (startMins === null) return mins;
+    return mins < startMins ? mins + 1440 : mins;
+  };
+
   const validated: GeneratedScheduleBlock[] = [];
 
   for (let i = 0; i < blocksArray.length; i++) {
@@ -767,6 +864,19 @@ export function validateScheduleBlocks(data: any): GeneratedScheduleBlock[] {
     const endTimeRaw = parseTimeString(b.endTime);
 
     if (!startTimeRaw || !endTimeRaw) continue;
+
+    // Hard Constraint: if planning window is known, block must not start before window start
+    if (startMins !== null && endWindowMins !== null) {
+      const bStartOffset = getOffsetMins(startTimeRaw);
+      // Discard blocks starting in the past (before startMins)
+      if (bStartOffset < startMins) {
+        continue;
+      }
+      // Discard blocks starting beyond the 9-hour planning window (+ buffer)
+      if (bStartOffset > endWindowMins + 45) {
+        continue;
+      }
+    }
 
     let type: ScheduleBlockType = "task";
     if (b.type && typeof b.type === "string") {
@@ -814,6 +924,9 @@ export function validateScheduleBlocks(data: any): GeneratedScheduleBlock[] {
       isAiRecommendation,
     });
   }
+
+  // Sort chronologically based on window start offset
+  validated.sort((a, b) => getOffsetMins(a.startTime) - getOffsetMins(b.startTime));
 
   return validated;
 }

@@ -5,6 +5,7 @@ import {
   getFirebaseAuth,
   handleFirestoreError,
   OperationType,
+  sanitizeForFirestore,
 } from "@/lib/firebase";
 import type { UserProfileDocument } from "@/lib/firebase/types";
 
@@ -91,7 +92,7 @@ export async function saveUserProfile(
   if (!docRef) return;
 
   try {
-    await setDoc(docRef, merged, { merge: true });
+    await setDoc(docRef, sanitizeForFirestore(merged), { merge: true });
   } catch (error) {
     const auth = getFirebaseAuth();
     handleFirestoreError(error, OperationType.WRITE, `users/${uid}`, {

@@ -157,6 +157,8 @@ export interface ScheduleBlock {
   startTime: string; // HH:mm
   endTime: string; // HH:mm
   activity: string;
+  title?: string;
+  description?: string;
   type: ScheduleBlockType;
   priority?: ImportanceLevel;
   deadlineId?: string;
@@ -164,6 +166,7 @@ export interface ScheduleBlock {
   reason?: string;
   location?: string;
   isCompleted?: boolean;
+  completed?: boolean;
   isAiRecommendation?: boolean;
   isAccepted?: boolean;
 }
@@ -176,10 +179,15 @@ export interface PlanPreferences {
 }
 
 export interface SavedDailyPlan {
-  id: string; // Date string YYYY-MM-DD
+  id: string; // Date string YYYY-MM-DD or unique plan ID
+  planId?: string;
+  userId?: string;
   date: string; // YYYY-MM-DD
+  timezone?: string;
+  planningStart?: string;
+  planningEnd?: string;
   blocks: ScheduleBlock[];
-  preferences: PlanPreferences;
+  preferences?: PlanPreferences;
   createdAt: string;
   updatedAt: string;
 }

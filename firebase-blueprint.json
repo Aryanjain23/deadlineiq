@@ -365,6 +365,25 @@
         }
       },
       "required": ["email", "uid", "createdAt"]
+    },
+    "DailyPlan": {
+      "title": "DailyPlan",
+      "description": "Generated or saved daily schedule plan for the student",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "planId": { "type": "string" },
+        "userId": { "type": "string" },
+        "date": { "type": "string" },
+        "timezone": { "type": "string" },
+        "planningStart": { "type": "string" },
+        "planningEnd": { "type": "string" },
+        "blocks": { "type": "array" },
+        "preferences": { "type": "object" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "date", "blocks", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -403,6 +422,10 @@
     "/users/{uid}/notificationTokens/{tokenId}": {
       "schema": "NotificationToken",
       "description": "Push notification device tokens registered for the student"
+    },
+    "/users/{uid}/dailyPlans/{planId}": {
+      "schema": "DailyPlan",
+      "description": "Daily schedule plans belonging strictly to the authenticated student"
     }
   }
 }

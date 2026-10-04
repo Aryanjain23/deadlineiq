@@ -428,7 +428,11 @@ export default function CalendarPage() {
     const userUid =
       currentUser.uid || (currentUser.usn ? `usn_${currentUser.usn}` : "guest");
     setEvents((prev) => prev.filter((e) => e.id !== id));
-    await deleteEvent(userUid, id, userUid);
+    try {
+      await deleteEvent(userUid, id, userUid);
+    } catch (err) {
+      console.warn("Could not sync deleted event to cloud:", err);
+    }
   };
 
   const handleToggleDeadline = async (deadlineId: string) => {
@@ -441,7 +445,11 @@ export default function CalendarPage() {
     setDeadlines((prev) =>
       prev.map((d) => (d.id === deadlineId ? { ...d, completed: newCompleted } : d))
     );
-    await updateDeadline(userUid, deadlineId, { completed: newCompleted }, userUid);
+    try {
+      await updateDeadline(userUid, deadlineId, { completed: newCompleted }, userUid);
+    } catch (err) {
+      console.warn("Could not sync updated deadline to cloud:", err);
+    }
   };
 
   const openNewEventModal = (dateStr?: string) => {

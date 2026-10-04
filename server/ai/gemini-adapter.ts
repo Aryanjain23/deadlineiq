@@ -22,18 +22,21 @@ import {
 import { extractTextFromPdf, cleanPdfText } from "./pdf-parser.js";
 
 const CANDIDATE_MODELS = [
-  "gemini-2.5-flash",
-  "gemini-2.0-flash",
-  "gemini-1.5-flash",
+  "gemini-3.8-flash",
+  "gemini-3.1-flash-lite",
+  "gemini-flash-latest",
 ];
 
-const REQUEST_TIMEOUT_MS = 25000;
+const REQUEST_TIMEOUT_MS = 30000;
 
 export function getGeminiApiKey(): string {
   let key = (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "").trim();
 
-  if (!key || key === "MY_GEMINI_API_KEY") {
+  if (!key || key === "MY_GEMINI_API_KEY" || key.startsWith("YOUR_")) {
     const candidateFiles = [
+      "/app/.dev.env.json",
+      path.resolve(process.cwd(), "../.dev.env.json"),
+      path.resolve(process.cwd(), ".dev.env.json"),
       path.resolve(process.cwd(), ".env.local"),
       path.resolve(process.cwd(), ".env"),
       path.resolve(process.cwd(), ".env.development.local"),
@@ -43,20 +46,34 @@ export function getGeminiApiKey(): string {
       try {
         if (fs.existsSync(filePath)) {
           const content = fs.readFileSync(filePath, "utf-8");
-          const geminiMatch = content.match(/GEMINI_API_KEY=([^\r\n]+)/);
-          if (geminiMatch && geminiMatch[1]) {
-            const candidateKey = geminiMatch[1].trim();
-            if (candidateKey && candidateKey !== "MY_GEMINI_API_KEY") {
-              key = candidateKey;
-              break;
+          if (filePath.endsWith(".json")) {
+            try {
+              const parsed = JSON.parse(content);
+              const candidate = (parsed.GEMINI_API_KEY || parsed.GOOGLE_API_KEY || "").trim();
+              if (candidate && candidate !== "MY_GEMINI_API_KEY" && !candidate.startsWith("YOUR_")) {
+                key = candidate;
+                process.env.GEMINI_API_KEY = key;
+                break;
+              }
+            } catch {}
+          } else {
+            const geminiMatch = content.match(/GEMINI_API_KEY=([^\r\n]+)/);
+            if (geminiMatch && geminiMatch[1]) {
+              const candidateKey = geminiMatch[1].trim();
+              if (candidateKey && candidateKey !== "MY_GEMINI_API_KEY" && !candidateKey.startsWith("YOUR_")) {
+                key = candidateKey;
+                process.env.GEMINI_API_KEY = key;
+                break;
+              }
             }
-          }
-          const googleMatch = content.match(/GOOGLE_API_KEY=([^\r\n]+)/);
-          if (googleMatch && googleMatch[1]) {
-            const candidateKey = googleMatch[1].trim();
-            if (candidateKey && candidateKey !== "MY_GEMINI_API_KEY") {
-              key = candidateKey;
-              break;
+            const googleMatch = content.match(/GOOGLE_API_KEY=([^\r\n]+)/);
+            if (googleMatch && googleMatch[1]) {
+              const candidateKey = googleMatch[1].trim();
+              if (candidateKey && candidateKey !== "MY_GEMINI_API_KEY" && !candidateKey.startsWith("YOUR_")) {
+                key = candidateKey;
+                process.env.GEMINI_API_KEY = key;
+                break;
+              }
             }
           }
         }
@@ -64,7 +81,7 @@ export function getGeminiApiKey(): string {
     }
   }
 
-  if (!key || key === "MY_GEMINI_API_KEY") {
+  if (!key || key === "MY_GEMINI_API_KEY" || key.startsWith("YOUR_")) {
     return "";
   }
 
@@ -312,10 +329,10 @@ RULES:
           taskName: { type: Type.STRING, description: "Descriptive name of the assignment/task" },
           subject: { type: Type.STRING, description: "Academic course/subject name" },
           hasExplicitDate: { type: Type.BOOLEAN, description: "True only if an explicit calendar date was stated" },
-          explicitDueDate: { type: Type.STRING, description: "YYYY-MM-DD format if explicit date found, else null" },
-          explicitDueDayOfWeek: { type: Type.STRING, description: "Day of week if named, else null" },
+          explicitDueDate: { type: Type.STRING, description: "Resolved YYYY-MM-DD format if explicit date found, or 'null' if none" },
+          explicitDueDayOfWeek: { type: Type.STRING, description: "Day of week if named (e.g. Wednesday), or 'null' if none" },
           isRelativeClassMention: { type: Type.BOOLEAN, description: "True if submission is specified as 'next class/lecture/lab'" },
-          dueTime: { type: Type.STRING, description: "HH:mm format if specified, else null" },
+          dueTime: { type: Type.STRING, description: "24-hour HH:mm format if specified, or 'null' if none" },
           importance: { type: Type.STRING, enum: ["CRITICAL", "HIGH", "MEDIUM", "LOW"] },
           description: { type: Type.STRING, description: "Concise summary of task requirements" },
           confidenceLevel: { type: Type.STRING, enum: ["HIGH", "MEDIUM", "LOW"] },
@@ -329,6 +346,8 @@ RULES:
           "taskName",
           "subject",
           "hasExplicitDate",
+          "explicitDueDate",
+          "dueTime",
           "isRelativeClassMention",
           "importance",
           "description",
@@ -359,6 +378,10 @@ RULES:
         const rawText = response.text?.trim() || "";
         const parsed = safeParseJson(rawText);
         const validated = validateExtractedDeadlines(parsed);
+
+        console.log(`[Gemini Extractor] Raw provider response shape: ${typeof rawText === "string" ? rawText.slice(0, 80) + "..." : typeof rawText}`);
+        console.log(`[Gemini Extractor] Parsed response type: ${Array.isArray(parsed) ? "array" : typeof parsed}`);
+        console.log(`[Gemini Extractor] Normalized candidate count: ${validated.length}`);
 
         return {
           data: validated,
@@ -410,6 +433,10 @@ RULES:
     const {
       currentDate,
       currentTime,
+      currentIsoTimestamp,
+      timeZone,
+      planningStartIso,
+      planningEndIso,
       preferences,
       fixedCommitments,
       activeDeadlines,
@@ -420,43 +447,37 @@ RULES:
     const { startTime, endTime, sessionLengthMinutes, breakLengthMinutes } = preferences;
 
     const systemPrompt = `You are the context-aware Academic Daily Planner for DeadlineIQ.
-Today's date is ${currentDate} and current local time is ${currentTime}.
-Your task is to generate an intelligent, realistic, structured, conflict-free daily schedule for the user between ${startTime} and ${endTime}.
+Today's date is ${currentDate}, user's current local time is ${currentTime} (Timezone: ${timeZone || "local"}).
+Planning window bounds: ${startTime} to ${endTime} (Full ISO range: ${planningStartIso || "start"} to ${planningEndIso || "end"}).
 
-PRIORITY ORDER FOR SCHEDULING TIME SLOTS:
-1. FIXED COMMITMENTS (Classes, Today's Exams, Calendar Events):
-   - Immovable. Retain their exact times, location, and subject.
-2. URGENT & ACTIVE DEADLINES:
-   - Overdue tasks, tasks due today, and tasks due in 1-2 days.
-   - Schedule focused work sessions (approx ${sessionLengthMinutes} mins).
-   - Set 'deadlineId' to the matching ID from ACTIVE_DEADLINES.
-   - Reason should be short (e.g. "Due tomorrow", "Due today", "Due in 3 days", "Overdue by 1 day").
-3. REVISION FOR UPCOMING EXAMS:
-   - If user has upcoming exams in UPCOMING_EXAMS, allocate targeted revision sessions (type: 'revision').
-   - Reason should be short (e.g. "Exam in 4 days", "Exam in 2 days").
-4. INTELLIGENT FREE-TIME PLANNING (When time is available):
-   - For enrolled subjects (in USER_SUBJECTS) or available free time, suggest meaningful activities:
-     * Review lecture notes or recently studied concepts (type: 'review', reason: "Course review")
-     * Practical technical skill practice/problem solving (type: 'skill', reason: "Skill practice")
-     * Low-intensity academic organization or study space cleanup (type: 'organize', reason: "Organize academic work")
-     * Restorative break, short walk, or personal productivity (type: 'break', reason: "Break")
-   - Ground suggestions in the user's subjects when available.
-   - If user has no academic data, suggest balanced skill/learning/productivity activities.
-
-CORE RULES:
-- Keep reasons short, crisp, and useful (max 4-6 words, e.g. "Due tomorrow", "Exam in 4 days", "Skill practice").
-- Set 'isAiRecommendation' to true for suggested revision/review/skill/organize activities, and false for fixed commitments or deadline tasks.
-- Do NOT fill every minute back-to-back; preserve genuine free time and breaks (~${breakLengthMinutes} mins).
-- No overlapping blocks. Sort chronologically.`;
+HARD CONSTRAINTS:
+1. STRICT TIME BOUNDS:
+   - Every generated block MUST begin at or after the current local time (${currentTime}).
+   - NEVER schedule any activity before ${currentTime}.
+   - The planning window spans from ${startTime} to ${endTime}. If ${startTime} > ${endTime} (e.g. 19:30 to 04:30), the window crosses midnight into early morning hours of the next day.
+2. NO PAST EVENTS:
+   - Do NOT schedule past classes or events that already concluded before ${currentTime}.
+3. PRIORITY ORDER FOR SCHEDULING TIME SLOTS:
+   - FIXED COMMITMENTS: Immovable remaining classes or events in the window.
+   - URGENT & ACTIVE DEADLINES: Schedule focused study/work blocks (~${sessionLengthMinutes} mins) for pending deadlines.
+   - REVISION FOR UPCOMING EXAMS: Revision blocks for upcoming exams in UPCOMING_EXAMS.
+   - FREE TIME / RECREATION: If work is completed or light, do NOT artificially stuff 9 hours. Include restorative breaks, exercise, review, skill practice, or rest.
+4. FORMAT:
+   - Keep reasons short (max 4-6 words, e.g. "Due tomorrow", "Exam in 4 days", "Course review").
+   - Set 'isAiRecommendation' to true for AI suggestions (revision, review, skill, organize) and false for fixed commitments or deadline tasks.
+   - No overlapping blocks. Sort chronologically.`;
 
     const userPrompt = `USER ACADEMIC CONTEXT:
 CURRENT DATE: ${currentDate}
 CURRENT TIME: ${currentTime}
+TIMEZONE: ${timeZone || "local"}
 AVAILABLE WINDOW: ${startTime} to ${endTime}
+PLANNING ISO START: ${planningStartIso || currentDate + "T" + currentTime}
+PLANNING ISO END: ${planningEndIso || "end"}
 TARGET SESSION LENGTH: ${sessionLengthMinutes} minutes
 BREAK DURATION: ${breakLengthMinutes} minutes
 
-FIXED_COMMITMENTS (Immovable):
+FIXED_COMMITMENTS (Immovable remaining):
 ${JSON.stringify(fixedCommitments, null, 2)}
 
 ACTIVE_DEADLINES (Pending tasks to schedule):
@@ -471,7 +492,7 @@ ${JSON.stringify(completedTasks, null, 2)}
 ENROLLED_COURSES_AND_SUBJECTS:
 ${JSON.stringify(userSubjects, null, 2)}
 
-Generate the complete, context-aware chronological schedule for today.`;
+Generate the complete, context-aware chronological schedule starting at ${currentTime}.`;
 
     const responseSchema = {
       type: Type.OBJECT,
@@ -524,7 +545,7 @@ Generate the complete, context-aware chronological schedule for today.`;
 
         const rawText = response.text?.trim() || "";
         const parsed = safeParseJson(rawText);
-        const validated = validateScheduleBlocks(parsed);
+        const validated = validateScheduleBlocks(parsed, payload);
 
         return {
           data: validated,
@@ -811,22 +832,22 @@ RULES:
             type: Type.OBJECT,
             properties: {
               subject: { type: Type.STRING, description: "Exam subject or course name" },
-              subjectCode: { type: Type.STRING, description: "Subject code if provided" },
-              examDate: { type: Type.STRING, description: "YYYY-MM-DD format if date found, else null" },
-              startTime: { type: Type.STRING, description: "HH:mm format (24-hour) if found, else null" },
-              endTime: { type: Type.STRING, description: "HH:mm format (24-hour) if found, else null" },
+              subjectCode: { type: Type.STRING, description: "Subject code if provided, or 'null' if none" },
+              examDate: { type: Type.STRING, description: "YYYY-MM-DD format if date found, or 'null' if none" },
+              startTime: { type: Type.STRING, description: "HH:mm format (24-hour) if found, or 'null' if none" },
+              endTime: { type: Type.STRING, description: "HH:mm format (24-hour) if found, or 'null' if none" },
               examType: {
                 type: Type.STRING,
                 enum: ["Internal", "Lab", "SEE", "Quiz", "Practical", "Other"],
               },
-              room: { type: Type.STRING, description: "Exam hall or room" },
-              semesterBranch: { type: Type.STRING, description: "Semester or department info" },
+              room: { type: Type.STRING, description: "Exam hall or room, or 'null' if none" },
+              semesterBranch: { type: Type.STRING, description: "Semester or department info, or 'null' if none" },
               confidenceLevel: { type: Type.STRING, enum: ["HIGH", "MEDIUM", "LOW"] },
               isDateAmbiguous: { type: Type.BOOLEAN },
-              ambiguityNote: { type: Type.STRING },
-              notes: { type: Type.STRING },
+              ambiguityNote: { type: Type.STRING, description: "Note if ambiguous, or 'null' if none" },
+              notes: { type: Type.STRING, description: "Special notes or 'null' if none" },
             },
-            required: ["subject"],
+            required: ["subject", "examDate", "startTime", "endTime", "examType", "confidenceLevel", "isDateAmbiguous"],
           },
         },
       },

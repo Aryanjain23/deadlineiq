@@ -18,12 +18,20 @@ export interface BuildPlanParams {
   planFreeTimeAnyway?: boolean;
 }
 
-export const DEFAULT_PLAN_PREFERENCES: PlanPreferences = {
-  startTime: "09:00",
-  endTime: "21:00",
-  sessionLengthMinutes: 50,
-  breakLengthMinutes: 10,
-};
+export function computeDynamicWindowPreferences(now: Date = new Date()): PlanPreferences {
+  const currentHHMM = formatCurrentTimeHHMM(now);
+  const startMins = timeToMinutes(currentHHMM);
+  const endMinsTotal = startMins + 9 * 60; // 9-hour default horizon
+  const endHHMM = minutesToTime(endMinsTotal % (24 * 60));
+  return {
+    startTime: currentHHMM,
+    endTime: endHHMM,
+    sessionLengthMinutes: 50,
+    breakLengthMinutes: 10,
+  };
+}
+
+export const DEFAULT_PLAN_PREFERENCES: PlanPreferences = computeDynamicWindowPreferences();
 
 /**
  * Helper to convert "HH:mm" to minutes from midnight
@@ -41,6 +49,15 @@ export function minutesToTime(mins: number): string {
   const h = Math.floor(normalized / 60);
   const m = normalized % 60;
   return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
+}
+
+/**
+ * Helper to compute continuous minute offset from window start,
+ * properly handling cross-midnight time ranges.
+ */
+export function getOffsetMinutesFromWindowStart(timeStr: string, windowStartMins: number): number {
+  const m = timeToMinutes(timeStr);
+  return m < windowStartMins ? m + 1440 : m;
 }
 
 /**
@@ -126,12 +143,27 @@ export async function generateDailySchedule(
   const completedDeadlines = (params.deadlines || []).filter((d) => d.completed).slice(0, 10);
   const allExams = params.exams || [];
 
-  // 1. Gather Fixed Commitments for Today
-  const todayClasses = (params.timetable || []).filter((t) => t.day === todayDay);
+  const timeZone = typeof Intl !== "undefined" && Intl.DateTimeFormat ? Intl.DateTimeFormat().resolvedOptions().timeZone : "UTC";
+
+  // Compute strict ISO start/end window for planning
+  const startMins = timeToMinutes(params.preferences.startTime);
+  const endMins = timeToMinutes(params.preferences.endTime);
+
+  const planningStart = new Date(now);
+  planningStart.setHours(Math.floor(startMins / 60), startMins % 60, 0, 0);
+
+  const planningEnd = new Date(planningStart);
+  if (endMins <= startMins) {
+    planningEnd.setDate(planningEnd.getDate() + 1);
+  }
+  planningEnd.setHours(Math.floor(endMins / 60), endMins % 60, 0, 0);
+
+  // 1. Gather Remaining Fixed Commitments for Today (filtering out past commitments)
+  const todayClasses = (params.timetable || []).filter((t) => t.day === todayDay && t.endTime >= currentTimeStr);
   const todayEvents = (params.events || []).filter(
-    (ev) => ev && ev.date === todayStr && !ev.allDay
+    (ev) => ev && ev.date === todayStr && !ev.allDay && (!ev.endTime || ev.endTime >= currentTimeStr)
   );
-  const todayExams = allExams.filter((ex) => ex.examDate === todayStr);
+  const todayExams = allExams.filter((ex) => ex.examDate === todayStr && (!ex.endTime || ex.endTime >= currentTimeStr));
 
   // 2. Upcoming Exams (Next 14-30 Days)
   const upcomingExams = allExams
@@ -249,6 +281,10 @@ export async function generateDailySchedule(
       body: JSON.stringify({
         currentDate: todayStr,
         currentTime: currentTimeStr,
+        currentIsoTimestamp: now.toISOString(),
+        timeZone,
+        planningStartIso: planningStart.toISOString(),
+        planningEndIso: planningEnd.toISOString(),
         preferences: params.preferences,
         fixedCommitments,
         activeDeadlines: payloadDeadlines,
@@ -261,8 +297,14 @@ export async function generateDailySchedule(
     if (res.ok) {
       const data = await res.json();
       if (data.success && Array.isArray(data.blocks) && data.blocks.length > 0) {
+        const startMins = timeToMinutes(currentTimeStr);
         const validBlocks: ScheduleBlock[] = data.blocks
-          .filter((b: any) => b && b.startTime && b.endTime && b.activity)
+          .filter((b: any) => {
+            if (!b || !b.startTime || !b.endTime || !b.activity) return false;
+            const bStart = getOffsetMinutesFromWindowStart(b.startTime, startMins);
+            // Must begin at or after current time, and within the 9-hour window (+ buffer)
+            return bStart >= startMins && bStart <= startMins + 9 * 60 + 45;
+          })
           .map((b: any, index: number) => ({
             id: b.id || `ai-block-${index}-${Date.now()}`,
             startTime: b.startTime,
@@ -283,7 +325,11 @@ export async function generateDailySchedule(
             ),
             isCompleted: false,
           }))
-          .sort((a: ScheduleBlock, b: ScheduleBlock) => a.startTime.localeCompare(b.startTime));
+          .sort(
+            (a: ScheduleBlock, b: ScheduleBlock) =>
+              getOffsetMinutesFromWindowStart(a.startTime, startMins) -
+              getOffsetMinutesFromWindowStart(b.startTime, startMins)
+          );
 
         return { blocks: validBlocks, isAiGenerated: true };
       }
@@ -321,26 +367,37 @@ export function generateDeterministicSchedule(params: BuildPlanParams): Schedule
     breakLengthMinutes = 10,
   } = params.preferences;
 
-  let windowStart = timeToMinutes(prefStart);
-  const windowEnd = timeToMinutes(prefEnd);
-
-  if (currentTimeMins > windowStart) {
-    windowStart = Math.ceil(currentTimeMins / 5) * 5;
+  let startMins = timeToMinutes(prefStart);
+  let endMins = timeToMinutes(prefEnd);
+  if (endMins <= startMins) {
+    endMins += 24 * 60; // Spans across midnight
   }
-
-  if (windowStart >= windowEnd) {
+  const windowEnd = endMins;
+  let windowStart = Math.max(startMins, currentTimeMins);
+  if (windowStart >= endMins) {
     return [];
   }
 
   const resultBlocks: ScheduleBlock[] = [];
 
-  // 1. Add Today's Classes
+  // 1. Add Today's Classes (Filtered strictly to window: no past classes)
   const todayClasses = (params.timetable || []).filter((t) => t.day === todayDay);
   for (const c of todayClasses) {
+    const cStartOffset = getOffsetMinutesFromWindowStart(c.startTime, windowStart);
+    let cEndOffset = getOffsetMinutesFromWindowStart(c.endTime, windowStart);
+    if (cEndOffset <= cStartOffset) cEndOffset += 1440;
+
+    // Ignore classes that ended before windowStart or begin after windowEnd
+    if (cEndOffset <= windowStart || cStartOffset >= windowEnd) continue;
+
+    const effectiveStartMins = Math.max(cStartOffset, windowStart);
+    const effectiveEndMins = Math.min(cEndOffset, windowEnd);
+    if (effectiveEndMins - effectiveStartMins < 10) continue;
+
     resultBlocks.push({
       id: `class-${c.id}`,
-      startTime: c.startTime,
-      endTime: c.endTime,
+      startTime: minutesToTime(effectiveStartMins % 1440),
+      endTime: minutesToTime(effectiveEndMins % 1440),
       activity: c.subject,
       type: "class",
       subject: c.subject,
@@ -350,15 +407,24 @@ export function generateDeterministicSchedule(params: BuildPlanParams): Schedule
     });
   }
 
-  // 2. Add Today's Exams
+  // 2. Add Today's Exams (Filtered strictly to window)
   const todayExams = (params.exams || []).filter((e) => e.examDate === todayStr);
   for (const ex of todayExams) {
     const exStart = ex.startTime || "10:00";
     const exEnd = ex.endTime || minutesToTime(timeToMinutes(exStart) + 180);
+    const exStartOffset = getOffsetMinutesFromWindowStart(exStart, windowStart);
+    let exEndOffset = getOffsetMinutesFromWindowStart(exEnd, windowStart);
+    if (exEndOffset <= exStartOffset) exEndOffset += 1440;
+
+    if (exEndOffset <= windowStart || exStartOffset >= windowEnd) continue;
+
+    const effectiveStartMins = Math.max(exStartOffset, windowStart);
+    const effectiveEndMins = Math.min(exEndOffset, windowEnd);
+
     resultBlocks.push({
       id: `exam-${ex.id}`,
-      startTime: exStart,
-      endTime: exEnd,
+      startTime: minutesToTime(effectiveStartMins % 1440),
+      endTime: minutesToTime(effectiveEndMins % 1440),
       activity: `${ex.subject} Examination`,
       type: "event",
       subject: ex.subject,
@@ -368,17 +434,26 @@ export function generateDeterministicSchedule(params: BuildPlanParams): Schedule
     });
   }
 
-  // 3. Add Today's Calendar Events
+  // 3. Add Today's Calendar Events (Filtered strictly to window)
   const todayEvents = (params.events || []).filter(
     (ev) => ev && ev.date === todayStr && !ev.allDay && ev.startTime
   );
   for (const ev of todayEvents) {
     const evStart = ev.startTime || "10:00";
     const evEnd = ev.endTime || minutesToTime(timeToMinutes(evStart) + 60);
+    const evStartOffset = getOffsetMinutesFromWindowStart(evStart, windowStart);
+    let evEndOffset = getOffsetMinutesFromWindowStart(evEnd, windowStart);
+    if (evEndOffset <= evStartOffset) evEndOffset += 1440;
+
+    if (evEndOffset <= windowStart || evStartOffset >= windowEnd) continue;
+
+    const effectiveStartMins = Math.max(evStartOffset, windowStart);
+    const effectiveEndMins = Math.min(evEndOffset, windowEnd);
+
     resultBlocks.push({
       id: `event-${ev.id}`,
-      startTime: evStart,
-      endTime: evEnd,
+      startTime: minutesToTime(effectiveStartMins % 1440),
+      endTime: minutesToTime(effectiveEndMins % 1440),
       activity: ev.title,
       type: "event",
       location: ev.location,
@@ -387,7 +462,11 @@ export function generateDeterministicSchedule(params: BuildPlanParams): Schedule
     });
   }
 
-  resultBlocks.sort((a, b) => a.startTime.localeCompare(b.startTime));
+  resultBlocks.sort(
+    (a, b) =>
+      getOffsetMinutesFromWindowStart(a.startTime, windowStart) -
+      getOffsetMinutesFromWindowStart(b.startTime, windowStart)
+  );
 
   // 4. Gather Candidate Study & Free-Time Activities
   interface CandidateActivity {
@@ -562,10 +641,12 @@ export function generateDeterministicSchedule(params: BuildPlanParams): Schedule
     start: number;
     end: number;
   }
-  const occupiedSlots: TimeSlot[] = resultBlocks.map((b) => ({
-    start: timeToMinutes(b.startTime),
-    end: timeToMinutes(b.endTime),
-  }));
+  const occupiedSlots: TimeSlot[] = resultBlocks.map((b) => {
+    const s = getOffsetMinutesFromWindowStart(b.startTime, windowStart);
+    let e = getOffsetMinutesFromWindowStart(b.endTime, windowStart);
+    if (e <= s) e += 1440;
+    return { start: s, end: e };
+  });
 
   occupiedSlots.sort((a, b) => a.start - b.start);
 
@@ -602,8 +683,8 @@ export function generateDeterministicSchedule(params: BuildPlanParams): Schedule
 
       if (sessionDuration < 20) break;
 
-      const blockStart = minutesToTime(slotTime);
-      const blockEnd = minutesToTime(slotTime + sessionDuration);
+      const blockStart = minutesToTime(slotTime % 1440);
+      const blockEnd = minutesToTime((slotTime + sessionDuration) % 1440);
 
       scheduledActivities.push({
         id: `plan-${candidate.type}-${Date.now()}-${itemIndex}`,
@@ -627,8 +708,8 @@ export function generateDeterministicSchedule(params: BuildPlanParams): Schedule
         const breakEnd = slotTime + breakLengthMinutes;
         scheduledActivities.push({
           id: `break-${Date.now()}-${slotTime}`,
-          startTime: minutesToTime(slotTime),
-          endTime: minutesToTime(breakEnd),
+          startTime: minutesToTime(slotTime % 1440),
+          endTime: minutesToTime(breakEnd % 1440),
           activity: "Break",
           type: "break",
           reason: undefined,
@@ -639,8 +720,123 @@ export function generateDeterministicSchedule(params: BuildPlanParams): Schedule
     }
   }
 
-  // Combine and sort chronologically
-  return [...resultBlocks, ...scheduledActivities].sort((a, b) =>
-    a.startTime.localeCompare(b.startTime)
+  // Combine and sort chronologically using continuous offset from windowStart
+  return [...resultBlocks, ...scheduledActivities].sort(
+    (a, b) =>
+      getOffsetMinutesFromWindowStart(a.startTime, windowStart) -
+      getOffsetMinutesFromWindowStart(b.startTime, windowStart)
   );
+}
+
+
+export interface ActivePlanStateResult {
+  status: "ACTIVE" | "UPCOMING" | "COMPLETED" | "EMPTY";
+  activeBlock: ScheduleBlock | null;
+  nextBlock: ScheduleBlock | null;
+  upNextBlocks: ScheduleBlock[];
+  remainingTimeStr: string | null;
+}
+
+export function evaluateActivePlanState(
+  blocks: ScheduleBlock[] = [],
+  now: Date = new Date()
+): ActivePlanStateResult {
+  if (!blocks || blocks.length === 0) {
+    return {
+      status: "EMPTY",
+      activeBlock: null,
+      nextBlock: null,
+      upNextBlocks: [],
+      remainingTimeStr: null,
+    };
+  }
+
+  const currentHHMM = formatCurrentTimeHHMM(now);
+  const currentMins = timeToMinutes(currentHHMM);
+  const refStartMins = timeToMinutes(blocks[0].startTime);
+  const currentOffset = getOffsetMinutesFromWindowStart(currentHHMM, refStartMins);
+
+  let activeBlock: ScheduleBlock | null = null;
+  let nextBlock: ScheduleBlock | null = null;
+  const upNextBlocks: ScheduleBlock[] = [];
+
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i];
+    const startM = getOffsetMinutesFromWindowStart(b.startTime, refStartMins);
+    let endM = getOffsetMinutesFromWindowStart(b.endTime, refStartMins);
+    if (endM <= startM) endM += 1440;
+
+    if (currentOffset >= startM && currentOffset < endM && !activeBlock) {
+      activeBlock = b;
+    } else if (startM > currentOffset) {
+      if (!nextBlock) {
+        nextBlock = b;
+      } else {
+        upNextBlocks.push(b);
+      }
+    }
+  }
+
+  let remainingTimeStr: string | null = null;
+  if (activeBlock) {
+    const startM = getOffsetMinutesFromWindowStart(activeBlock.startTime, refStartMins);
+    let endM = getOffsetMinutesFromWindowStart(activeBlock.endTime, refStartMins);
+    if (endM <= startM) endM += 1440;
+    const diff = Math.max(0, endM - currentOffset);
+    if (diff < 60) {
+      remainingTimeStr = diff + "m left";
+    } else {
+      const h = Math.floor(diff / 60);
+      const m = diff % 60;
+      remainingTimeStr = h + "h " + m + "m left";
+    }
+  }
+
+  const allCompleted = blocks.every((b) => b.isCompleted);
+  const lastBlock = blocks[blocks.length - 1];
+  let lastEndOffset = 0;
+  if (lastBlock) {
+    const s = getOffsetMinutesFromWindowStart(lastBlock.startTime, refStartMins);
+    lastEndOffset = getOffsetMinutesFromWindowStart(lastBlock.endTime, refStartMins);
+    if (lastEndOffset <= s) lastEndOffset += 1440;
+  }
+  const isPastAllBlocks = currentOffset >= lastEndOffset;
+
+  if (allCompleted || (isPastAllBlocks && !activeBlock && !nextBlock)) {
+    return {
+      status: "COMPLETED",
+      activeBlock: null,
+      nextBlock: null,
+      upNextBlocks: [],
+      remainingTimeStr: null,
+    };
+  }
+
+  if (activeBlock) {
+    return {
+      status: "ACTIVE",
+      activeBlock,
+      nextBlock,
+      upNextBlocks,
+      remainingTimeStr,
+    };
+  }
+
+  if (nextBlock) {
+    return {
+      status: "UPCOMING",
+      activeBlock: null,
+      nextBlock,
+      upNextBlocks,
+      remainingTimeStr: null,
+    };
+  }
+
+  return {
+    status: "EMPTY",
+    activeBlock: null,
+    nextBlock: null,
+    upNextBlocks: [],
+    remainingTimeStr: null,
+  };
 }

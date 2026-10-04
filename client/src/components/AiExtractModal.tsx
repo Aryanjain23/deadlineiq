@@ -336,7 +336,7 @@ export default function AiExtractModal({
 
       let dateSourceType: DateSourceType = "user-entered";
       let dueDate = "";
-      let dueTime = raw.dueTime || "23:59";
+      let dueTime = raw.dueTime || "";
       let isDateMissing = true;
       let isDateAmbiguous = Boolean(raw.isDateAmbiguous);
       let ambiguityNote = raw.ambiguityNote || null;
@@ -346,7 +346,7 @@ export default function AiExtractModal({
       if (raw.hasExplicitDate && raw.explicitDueDate && raw.explicitDueDate !== "null") {
         dateSourceType = "ai-extracted";
         dueDate = raw.explicitDueDate;
-        dueTime = raw.dueTime || "23:59";
+        dueTime = raw.dueTime || "";
         isDateMissing = false;
       }
       // 2. Relative class mention (e.g. "next class", "next lab")

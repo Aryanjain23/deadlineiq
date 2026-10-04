@@ -12,6 +12,7 @@ import {
   getFirebaseAuth,
   handleFirestoreError,
   OperationType,
+  sanitizeForFirestore,
 } from "@/lib/firebase";
 import {
   loadTimetable,
@@ -108,7 +109,7 @@ export async function saveTimetableEntry(
     const docRef = getTimetableDocRef(uid, entry.id);
     if (docRef) {
       try {
-        await setDoc(docRef, normalized, { merge: true });
+        await setDoc(docRef, sanitizeForFirestore(normalized), { merge: true });
       } catch (error) {
         handleFirestoreError(error, OperationType.WRITE, `users/${uid}/timetable/${entry.id}`, getFirebaseAuth()?.currentUser);
       }
@@ -146,7 +147,7 @@ export async function saveAllTimetableEntries(
           if (docRef) {
             await setDoc(
               docRef,
-              {
+              sanitizeForFirestore({
                 id: e.id,
                 day: e.day,
                 subject: e.subject,
@@ -156,7 +157,7 @@ export async function saveAllTimetableEntries(
                 room: e.room || "",
                 instructor: e.instructor || "",
                 updatedAt: new Date().toISOString(),
-              },
+              }),
               { merge: true }
             );
           }

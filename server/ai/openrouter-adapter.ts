@@ -24,11 +24,11 @@ const OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
 
 // Active, high-availability text models on OpenRouter with broad free and standard tier coverage
 const OPENROUTER_TEXT_MODELS = [
-  "google/gemini-2.0-flash-001",
   "meta-llama/llama-3.3-70b-instruct",
   "mistralai/mistral-small-24b-instruct-2501",
-  "deepseek/deepseek-chat",
   "qwen/qwen-2.5-72b-instruct",
+  "deepseek/deepseek-chat",
+  "google/gemini-2.0-flash-001",
   "openrouter/free",
   "meta-llama/llama-3.3-70b-instruct:free",
   "mistralai/mistral-small-24b-instruct-2501:free",
@@ -50,6 +50,9 @@ export function getOpenRouterApiKey(): string {
 
   if (!key) {
     const candidateFiles = [
+      "/app/.dev.env.json",
+      path.resolve(process.cwd(), "../.dev.env.json"),
+      path.resolve(process.cwd(), ".dev.env.json"),
       path.resolve(process.cwd(), ".env.local"),
       path.resolve(process.cwd(), ".env"),
       path.resolve(process.cwd(), ".env.development.local"),
@@ -59,12 +62,25 @@ export function getOpenRouterApiKey(): string {
       try {
         if (fs.existsSync(filePath)) {
           const content = fs.readFileSync(filePath, "utf-8");
-          const match = content.match(/OPENROUTER_API_KEY=([^\r\n]+)/);
-          if (match && match[1]) {
-            const candidateKey = match[1].trim();
-            if (candidateKey) {
-              key = candidateKey;
-              break;
+          if (filePath.endsWith(".json")) {
+            try {
+              const parsed = JSON.parse(content);
+              const candidate = (parsed.OPENROUTER_API_KEY || "").trim();
+              if (candidate) {
+                key = candidate;
+                process.env.OPENROUTER_API_KEY = key;
+                break;
+              }
+            } catch {}
+          } else {
+            const match = content.match(/OPENROUTER_API_KEY=([^\r\n]+)/);
+            if (match && match[1]) {
+              const candidateKey = match[1].trim();
+              if (candidateKey) {
+                key = candidateKey;
+                process.env.OPENROUTER_API_KEY = key;
+                break;
+              }
             }
           }
         }
@@ -72,10 +88,10 @@ export function getOpenRouterApiKey(): string {
     }
   }
 
-  // Fallback: if GEMINI_API_KEY is non-Google key (e.g. sk-or-...), treat as OpenRouter key
+  // Fallback: only if GEMINI_API_KEY explicitly starts with sk-or-, treat as OpenRouter key
   if (!key) {
-    const rawGemini = (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "").trim();
-    if (rawGemini && !rawGemini.startsWith("AIza") && rawGemini !== "MY_GEMINI_API_KEY") {
+    const rawGemini = (process.env.GEMINI_API_KEY || "").trim();
+    if (rawGemini && rawGemini.startsWith("sk-or-")) {
       key = rawGemini;
     }
   }
@@ -396,6 +412,10 @@ Output MUST be a strictly valid JSON object with the following structure:
     const parsed = safeParseJson(text);
     const validated = validateExtractedDeadlines(parsed);
 
+    console.log(`[OpenRouter Extractor] Raw provider response shape: ${typeof text === "string" ? text.slice(0, 80) + "..." : typeof text}`);
+    console.log(`[OpenRouter Extractor] Parsed response type: ${Array.isArray(parsed) ? "array" : typeof parsed}`);
+    console.log(`[OpenRouter Extractor] Normalized candidate count: ${validated.length}`);
+
     return {
       data: validated,
       provider: "openrouter",
@@ -409,6 +429,10 @@ Output MUST be a strictly valid JSON object with the following structure:
     const {
       currentDate,
       currentTime,
+      currentIsoTimestamp,
+      timeZone,
+      planningStartIso,
+      planningEndIso,
       preferences,
       fixedCommitments,
       activeDeadlines,
@@ -419,8 +443,15 @@ Output MUST be a strictly valid JSON object with the following structure:
     const { startTime, endTime, sessionLengthMinutes, breakLengthMinutes } = preferences;
 
     const systemPrompt = `You are the context-aware Academic Daily Planner for DeadlineIQ.
-Today's date: ${currentDate}, Current time: ${currentTime}.
-Target window: ${startTime} to ${endTime}.
+Today's date: ${currentDate}, Current time: ${currentTime} (Timezone: ${timeZone || "local"}).
+Planning window: ${startTime} to ${endTime} (ISO: ${planningStartIso || "start"} to ${planningEndIso || "end"}).
+
+HARD CONSTRAINTS:
+1. STRICT TIME BOUNDS:
+   - Every generated block MUST begin at or after the current local time (${currentTime}).
+   - NEVER schedule any activity before ${currentTime}.
+   - If ${startTime} > ${endTime} (e.g. 19:30 to 04:30), the window crosses midnight into early morning hours of the next day.
+2. NO PAST EVENTS: Do NOT schedule past classes or events that already concluded before ${currentTime}.
 
 Output MUST be a strictly valid JSON object with the following structure:
 {
@@ -442,26 +473,28 @@ Output MUST be a strictly valid JSON object with the following structure:
 }
 
 PRIORITY RULES:
-1. FIXED COMMITMENTS: Classes, today's exams, and events must be present in their exact time slots.
-2. ACTIVE DEADLINES: Schedule priority study blocks for pending assignments, especially overdue/due-soon items. Reason should be short (e.g. "Due tomorrow", "Due in 3 days").
-3. UPCOMING EXAM REVISION: If user has upcoming exams (in UPCOMING_EXAMS), allocate revision blocks (type: 'revision', reason: "Exam in X days").
-4. INTELLIGENT FREE-TIME PLANNING: Suggest meaningful course review, practical skill practice, academic organization, or restorative breaks.
-5. GROUNDING: Ground suggestions in user courses/subjects when available.
+1. FIXED COMMITMENTS: Immovable remaining classes or events in the window.
+2. ACTIVE DEADLINES: Schedule priority study blocks for pending assignments.
+3. UPCOMING EXAM REVISION: Allocate revision blocks for upcoming exams in UPCOMING_EXAMS.
+4. INTELLIGENT FREE-TIME PLANNING: Suggest course review, practical skill practice, academic organization, or restorative breaks. Do not artificially force 9 hours if work is light.
 
 CORE CONSTRAINTS:
 - Keep reasons short and useful (e.g. "Due tomorrow", "Exam in 4 days", "Course review").
-- Set 'isAiRecommendation: true' for AI suggestions (revision, review, skill, organize) and 'false' for fixed commitments and deadline tasks.
+- Set 'isAiRecommendation: true' for AI suggestions and 'false' for fixed commitments and deadline tasks.
 - Keep realistic breaks (type: 'break', ~${breakLengthMinutes} mins).
 - No overlapping blocks. Sort chronologically.`;
 
     const userPrompt = `USER ACADEMIC CONTEXT:
 CURRENT DATE: ${currentDate}
 CURRENT TIME: ${currentTime}
+TIMEZONE: ${timeZone || "local"}
 AVAILABLE WINDOW: ${startTime} to ${endTime}
+PLANNING ISO START: ${planningStartIso || currentDate + "T" + currentTime}
+PLANNING ISO END: ${planningEndIso || "end"}
 TARGET SESSION LENGTH: ${sessionLengthMinutes} mins
 BREAK DURATION: ${breakLengthMinutes} mins
 
-FIXED_COMMITMENTS:
+FIXED_COMMITMENTS (Immovable remaining):
 ${JSON.stringify(fixedCommitments, null, 2)}
 
 ACTIVE_DEADLINES:
@@ -476,7 +509,7 @@ ${JSON.stringify(completedTasks, null, 2)}
 ENROLLED_COURSES:
 ${JSON.stringify(userSubjects, null, 2)}
 
-Generate the complete context-aware daily plan. Return ONLY the JSON object.`;
+Generate the complete context-aware daily plan starting at ${currentTime}. Return ONLY the JSON object.`;
 
     const messages = [
       { role: "system", content: systemPrompt },
@@ -490,7 +523,7 @@ Generate the complete context-aware daily plan. Return ONLY the JSON object.`;
     );
 
     const parsed = safeParseJson(text);
-    const validated = validateScheduleBlocks(parsed);
+    const validated = validateScheduleBlocks(parsed, payload);
 
     return {
       data: validated,

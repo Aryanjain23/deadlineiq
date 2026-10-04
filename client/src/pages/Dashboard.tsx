@@ -75,6 +75,7 @@ import {
   subscribeToExams,
   saveAllExams,
   subscribeToEvents,
+  subscribeToDailyPlan,
 } from "@/lib/services";
 import {
   getNearestUpcomingEvent,
@@ -88,6 +89,9 @@ import AcademicRadar from "@/components/AcademicRadar";
 import FocusModal from "@/components/FocusModal";
 import PlanMyDayModal from "@/components/PlanMyDayModal";
 import ThemeToggle from "@/components/ThemeToggle";
+import { formatDateToYYYYMMDD, formatCurrentTimeHHMM, timeToMinutes, minutesToTime, evaluateActivePlanState } from '@/lib/smartPlannerEngine';
+import type { SavedDailyPlan, ScheduleBlock } from '@/lib/firebase/types';
+
 
 function formatShortDueDate(dateStr: string): string {
   try {
@@ -117,6 +121,9 @@ export default function Dashboard() {
   const [timetable, setTimetable] = useState<TimetableEntry[]>([]);
   const [exams, setExams] = useState<Exam[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [todayPlan, setTodayPlan] = useState<SavedDailyPlan | null>(null);
+  const [planMyDayClickTime, setPlanMyDayClickTime] = useState<Date | undefined>(undefined);
+  const [planModalMode, setPlanModalMode] = useState<"generate" | "view">("generate");
 
   // Modals state
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
@@ -188,12 +195,17 @@ export default function Dashboard() {
       },
       userUid
     );
+    const unsubPlan = subscribeToDailyPlan(userUid, formatDateToYYYYMMDD(new Date()), (plan) => {
+      setTodayPlan(plan);
+    });
+
 
     return () => {
       unsubDeadlines();
       unsubTimetable();
       unsubExams();
       unsubEvents();
+      unsubPlan();
     };
   }, [currentUser, isAuthLoading, setLocation]);
 
@@ -210,6 +222,27 @@ export default function Dashboard() {
     }
   }, []);
 
+
+  const handleOpenPlanMyDay = (mode: "generate" | "view" = "generate") => {
+    const clickDate = new Date();
+    const clickHHMM = formatCurrentTimeHHMM(clickDate);
+    const tz = typeof Intl !== "undefined" && Intl.DateTimeFormat ? Intl.DateTimeFormat().resolvedOptions().timeZone : "local";
+    const startMins = timeToMinutes(clickHHMM);
+    const endMins = (startMins + 9 * 60) % (24 * 60);
+    const endHHMM = minutesToTime(endMins);
+
+    console.log("PLAN_MY_DAY_CLICK", {
+      localTimestamp: clickDate.toISOString(),
+      timezone: tz,
+      planningStart: clickHHMM,
+      planningEnd: endHHMM,
+    });
+
+    setPlanMyDayClickTime(clickDate);
+    setPlanModalMode(mode);
+    setIsPlanMyDayModalOpen(true);
+  };
+
   const handleLogout = async () => {
     await logout();
     setLocation("/login");
@@ -219,7 +252,11 @@ export default function Dashboard() {
     if (!currentUser) return;
     const userUid = currentUser.uid || (currentUser.usn ? `usn_${currentUser.usn}` : "guest");
     setDeadlines((prev) => [newDeadline, ...prev]);
-    await createDeadline(userUid, newDeadline, userUid);
+    try {
+      await createDeadline(userUid, newDeadline, userUid);
+    } catch (err) {
+      console.warn("Could not sync added deadline to cloud:", err);
+    }
   };
 
   const handleToggleComplete = async (id: string) => {
@@ -231,28 +268,44 @@ export default function Dashboard() {
     setDeadlines((prev) =>
       prev.map((d) => (d.id === id ? { ...d, completed: newCompleted } : d))
     );
-    await updateDeadline(userUid, id, { completed: newCompleted }, userUid);
+    try {
+      await updateDeadline(userUid, id, { completed: newCompleted }, userUid);
+    } catch (err) {
+      console.warn("Could not sync updated deadline to cloud:", err);
+    }
   };
 
   const handleDeleteDeadline = async (id: string) => {
     if (!currentUser) return;
     const userUid = currentUser.uid || (currentUser.usn ? `usn_${currentUser.usn}` : "guest");
     setDeadlines((prev) => prev.filter((d) => d.id !== id));
-    await deleteDeadline(userUid, id, userUid);
+    try {
+      await deleteDeadline(userUid, id, userUid);
+    } catch (err) {
+      console.warn("Could not sync deleted deadline to cloud:", err);
+    }
   };
 
   const handleUpdateTimetable = async (updated: TimetableEntry[]) => {
     if (!currentUser) return;
     const userUid = currentUser.uid || (currentUser.usn ? `usn_${currentUser.usn}` : "guest");
     setTimetable(updated);
-    await saveAllTimetableEntries(userUid, updated, userUid);
+    try {
+      await saveAllTimetableEntries(userUid, updated, userUid);
+    } catch (err) {
+      console.warn("Could not sync timetable to cloud:", err);
+    }
   };
 
   const handleUpdateExams = async (updated: Exam[]) => {
     if (!currentUser) return;
     const userUid = currentUser.uid || (currentUser.usn ? `usn_${currentUser.usn}` : "guest");
     setExams(updated);
-    await saveAllExams(userUid, updated, userUid);
+    try {
+      await saveAllExams(userUid, updated, userUid);
+    } catch (err) {
+      console.warn("Could not sync exams to cloud:", err);
+    }
   };
 
   const handleViewTask = (id: string) => {
@@ -789,7 +842,7 @@ export default function Dashboard() {
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 sm:gap-3 w-full md:w-auto">
             <button
               type="button"
-              onClick={() => setIsPlanMyDayModalOpen(true)}
+              onClick={() => handleOpenPlanMyDay("generate")}
               className="w-full sm:w-auto min-h-[44px] px-5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-white bg-slate-900 hover:bg-slate-800 dark:bg-blue-600 dark:hover:bg-blue-500 shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer btn-tactile active:scale-95 flex-shrink-0"
               title="Generate your schedule for today"
             >
@@ -1031,34 +1084,168 @@ export default function Dashboard() {
         </section>
 
         {/* ================================================== */}
-        {/* PLAN MY DAY PRODUCTIVITY CARD                      */}
+        {/* TODAY'S PLAN CARD ("WHAT TO DO NOW")              */}
         {/* ================================================== */}
-        <section className="relative z-10" aria-label="Plan My Day Card">
-          <div className="rounded-2xl p-5 sm:p-6 border border-slate-200/90 dark:border-white/[0.08] bg-white dark:bg-[#111726] shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-5 transition-all">
-            <div className="flex items-start sm:items-center gap-4">
-              <div className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/40 text-blue-600 dark:text-blue-400">
-                <Calendar size={20} />
+        <section className="relative z-10" aria-label="Today's Plan">
+          <div className="rounded-2xl p-5 sm:p-6 border border-slate-200/90 dark:border-white/[0.08] bg-white dark:bg-[#111726] shadow-xs flex flex-col gap-4 transition-all">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200/70 dark:border-white/[0.06]">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/40 text-blue-600 dark:text-blue-400">
+                  <Clock size={19} />
+                </div>
+                <div>
+                  <h3 className="text-base sm:text-lg font-semibold tracking-tight text-slate-900 dark:text-white font-['Space_Grotesk',sans-serif]">
+                    Today's Plan
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {todayPlan ? `Saved schedule for ${todayPlan.date}` : "No active schedule generated for today"}
+                  </p>
+                </div>
               </div>
-              <div>
-                <h3 className="text-lg sm:text-xl font-semibold tracking-tight text-slate-900 dark:text-white font-['Space_Grotesk',sans-serif]">
-                  Plan your day
-                </h3>
-                <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 mt-0.5 leading-relaxed max-w-xl">
-                  Generate an optimized schedule built around your classes and calendar events, prioritizing overdue tasks and today's deadlines.
-                </p>
+
+              <div className="flex items-center gap-2">
+                {todayPlan && (
+                  <span className="px-2.5 py-1 rounded-full text-[11px] font-mono tracking-wider bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 font-medium">
+                    Saved
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => handleOpenPlanMyDay(todayPlan ? "view" : "generate")}
+                  className="min-h-[38px] px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold text-white bg-slate-900 hover:bg-slate-800 dark:bg-blue-600 dark:hover:bg-blue-500 shadow-xs transition-all flex items-center gap-1.5 cursor-pointer btn-tactile"
+                >
+                  <Sparkles size={14} />
+                  <span>{todayPlan ? "View / Edit Plan" : "Plan My Day"}</span>
+                </button>
               </div>
             </div>
 
-            <div className="flex items-center gap-3 flex-shrink-0 w-full md:w-auto">
-              <button
-                onClick={() => setIsPlanMyDayModalOpen(true)}
-                className="w-full sm:w-auto min-h-[44px] px-5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold flex items-center justify-center gap-2 cursor-pointer btn-tactile text-white bg-slate-900 hover:bg-slate-800 dark:bg-blue-600 dark:hover:bg-blue-500 shadow-xs transition-all"
-              >
-                <Calendar size={14} />
-                <span>Plan My Day</span>
-                <ArrowRight size={13} />
-              </button>
-            </div>
+            {/* CARD CONTENT STATE */}
+            {(() => {
+              const planState = evaluateActivePlanState(todayPlan?.blocks || []);
+
+              if (!todayPlan || !todayPlan.blocks || todayPlan.blocks.length === 0) {
+                return (
+                  <div className="py-4 text-center flex flex-col items-center justify-center">
+                    <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mb-2">
+                      No plan for today yet.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenPlanMyDay("generate")}
+                      className="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Sparkles size={14} />
+                      <span>Plan My Day</span>
+                    </button>
+                  </div>
+                );
+              }
+
+              if (planState.status === "COMPLETED") {
+                return (
+                  <div className="py-4 px-4 rounded-xl bg-emerald-500/5 border border-emerald-500/20 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                        <Check size={18} />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">
+                          PLAN COMPLETE
+                        </h4>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                          You finished today's planned blocks.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenPlanMyDay("generate")}
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 transition-colors cursor-pointer"
+                      >
+                        Plan Next 9 Hours
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenPlanMyDay("view")}
+                        className="text-xs font-medium text-slate-600 dark:text-slate-300 hover:underline cursor-pointer"
+                      >
+                        View
+                      </button>
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="space-y-2.5 cursor-pointer" onClick={() => handleOpenPlanMyDay("view")}>
+                  {/* NOW BLOCK */}
+                  {planState.activeBlock && (
+                    <div className="p-3 sm:p-4 rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-between gap-3">
+                      <div className="flex items-start sm:items-center gap-3">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-mono tracking-widest font-bold bg-blue-600 text-white uppercase animate-pulse">
+                          NOW
+                        </span>
+                        <div>
+                          <h4 className="text-sm font-semibold text-slate-900 dark:text-white">
+                            {planState.activeBlock.activity}
+                          </h4>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-2">
+                            <span>{planState.activeBlock.startTime} – {planState.activeBlock.endTime}</span>
+                            {planState.activeBlock.subject && (
+                              <span className="px-1.5 py-0.2 rounded bg-slate-100 dark:bg-white/10 border border-slate-200 dark:border-white/10 font-medium">
+                                {planState.activeBlock.subject}
+                              </span>
+                            )}
+                          </p>
+                        </div>
+                      </div>
+
+                      {planState.remainingTimeStr && (
+                        <span className="px-2.5 py-1 rounded-md text-xs font-mono font-semibold bg-blue-600/15 text-blue-700 dark:text-blue-300 flex-shrink-0">
+                          {planState.remainingTimeStr}
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* NEXT BLOCK */}
+                  {planState.nextBlock && (
+                    <div className="p-3 sm:p-3.5 rounded-xl bg-slate-50 dark:bg-white/[0.03] border border-slate-200/80 dark:border-white/10 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-mono tracking-widest font-semibold bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 uppercase">
+                          {planState.activeBlock ? "NEXT" : "NEXT UP"}
+                        </span>
+                        <div>
+                          <h4 className="text-xs sm:text-sm font-medium text-slate-900 dark:text-white">
+                            {planState.nextBlock.activity}
+                          </h4>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-2">
+                            <span>{planState.nextBlock.startTime} – {planState.nextBlock.endTime}</span>
+                            {planState.nextBlock.subject && (
+                              <span>· {planState.nextBlock.subject}</span>
+                            )}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* UP NEXT BLOCKS */}
+                  {planState.upNextBlocks.length > 0 && (
+                    <div className="pt-1 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                      <span>
+                        Up next: {planState.upNextBlocks.map((b) => b.activity).join(" · ")}
+                      </span>
+                      <span className="text-blue-600 dark:text-blue-400 font-medium hover:underline">
+                        View Full Plan ({todayPlan.blocks.length} blocks) →
+                      </span>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         </section>
 
@@ -1849,6 +2036,8 @@ export default function Dashboard() {
       {/* Plan My Day Intelligent Schedule Modal */}
       <PlanMyDayModal
         isOpen={isPlanMyDayModalOpen}
+        clickDate={planMyDayClickTime}
+        initialMode={planModalMode}
         onClose={() => setIsPlanMyDayModalOpen(false)}
         uid={currentUser.uid || (currentUser.usn ? `usn_${currentUser.usn}` : "guest")}
         deadlines={deadlines}

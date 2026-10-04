@@ -147,3 +147,23 @@ export function getDailyPlanDocRef(
 }
 
 export { handleFirestoreError, OperationType };
+
+/**
+ * Recursively cleans objects to remove 'undefined' properties before passing to Firestore.
+ * Firestore setDoc/updateDoc throw a fatal error if any field value is 'undefined'.
+ */
+export function sanitizeForFirestore<T extends Record<string, any>>(obj: T): T {
+  if (!obj || typeof obj !== "object") return obj;
+  const result: any = Array.isArray(obj) ? [] : {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value === undefined) {
+      continue; // Skip undefined values so Firestore setDoc/updateDoc won't throw
+    }
+    if (value !== null && typeof value === "object" && !(value instanceof Date)) {
+      result[key] = sanitizeForFirestore(value);
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
+}

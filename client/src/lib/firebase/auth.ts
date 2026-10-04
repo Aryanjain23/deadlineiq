@@ -18,7 +18,7 @@ import {
 } from "firebase/auth";
 import { getDoc, setDoc, deleteDoc } from "firebase/firestore";
 import { getFirebaseApp, isFirebaseConfigured } from "./config";
-import { getUserDocRef, getFirebaseDb } from "./firestore";
+import { getUserDocRef, getFirebaseDb, sanitizeForFirestore } from "./firestore";
 import type { UserProfileDocument } from "./types";
 import {
   checkEmailRegistered,
@@ -109,7 +109,7 @@ export async function syncUserProfileDocument(
       const existing = snap.data() as UserProfileDocument;
       await setDoc(
         docRef,
-        {
+        sanitizeForFirestore({
           uid: user.uid,
           displayName: user.displayName || additionalData?.displayName || existing.displayName || "Student",
           email: user.email ?? existing.email ?? null,
@@ -118,7 +118,7 @@ export async function syncUserProfileDocument(
           usn: additionalData?.usn || existing.usn || "",
           lastLoginAt: now,
           updatedAt: now,
-        },
+        }),
         { merge: true }
       );
     } else {
@@ -136,7 +136,7 @@ export async function syncUserProfileDocument(
         updatedAt: now,
         lastLoginAt: now,
       };
-      await setDoc(docRef, newProfile);
+      await setDoc(docRef, sanitizeForFirestore(newProfile));
     }
   } catch (err) {
     console.warn("Unable to sync user document to Firestore:", err);

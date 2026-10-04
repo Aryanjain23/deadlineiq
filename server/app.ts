@@ -1,4 +1,27 @@
 import express from "express";
+import fs from "fs";
+import path from "path";
+
+// Hydrate process.env from .dev.env.json if placeholders or missing
+try {
+  const candidateFiles = [
+    "/app/.dev.env.json",
+    path.resolve(process.cwd(), "../.dev.env.json"),
+    path.resolve(process.cwd(), ".dev.env.json"),
+  ];
+  for (const f of candidateFiles) {
+    if (fs.existsSync(f)) {
+      const data = JSON.parse(fs.readFileSync(f, "utf-8"));
+      for (const [k, v] of Object.entries(data)) {
+        if (typeof v === "string" && v && (!process.env[k] || process.env[k] === "MY_GEMINI_API_KEY" || process.env[k].startsWith("YOUR_"))) {
+          process.env[k] = v;
+        }
+      }
+      break;
+    }
+  }
+} catch {}
+
 import { aiService } from "./ai/index.js";
 import { checkAccount, registerAccount, unregisterAccount } from "./accounts.js";
 import { getAdminAuth, getAdminFirestore, getAdminStorage } from "./firebaseAdmin.js";

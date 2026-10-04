@@ -10,6 +10,7 @@ import {
   getExamDocRef,
   getFirebaseDb,
   getFirebaseAuth,
+  sanitizeForFirestore,
 } from "@/lib/firebase";
 import {
   loadExams,
@@ -107,7 +108,7 @@ export async function saveExamEntry(
     const docRef = getExamDocRef(uid, exam.id);
     if (docRef) {
       try {
-        await setDoc(docRef, data, { merge: true });
+        await setDoc(docRef, sanitizeForFirestore(data), { merge: true });
       } catch (err) {
         console.warn("Could not save exam to Firestore:", err);
       }
@@ -144,10 +145,10 @@ export async function saveAllExams(
           if (docRef) {
             await setDoc(
               docRef,
-              {
+              sanitizeForFirestore({
                 ...ex,
                 updatedAt: new Date().toISOString(),
-              },
+              }),
               { merge: true }
             );
           }

@@ -12,7 +12,6 @@ import {
   ExternalLink,
   Check,
   AlertCircle,
-  Sliders,
   MapPin,
   Sparkles,
 } from "lucide-react";
@@ -23,14 +22,13 @@ import type { Exam } from "@/lib/exams";
 import type {
   ScheduleBlock,
   ScheduleBlockType,
-  PlanPreferences,
   SavedDailyPlan,
 } from "@/lib/firebase/types";
 import {
   generateDailySchedule,
   formatDateToYYYYMMDD,
   formatCurrentTimeHHMM,
-  DEFAULT_PLAN_PREFERENCES,
+  computeDynamicWindowPreferences,
   minutesToTime,
   timeToMinutes,
   formatBlockDuration,
@@ -39,11 +37,14 @@ import {
   saveDailyPlan,
   getDailyPlan,
 } from "@/lib/services/planService";
+import { getFirebaseAuth } from "@/lib/firebase";
 
 interface PlanMyDayModalProps {
   isOpen: boolean;
   onClose: () => void;
   uid: string;
+  clickDate?: Date;
+  initialMode?: "generate" | "view";
   deadlines: Deadline[];
   timetable: TimetableEntry[];
   events: CalendarEvent[];
@@ -58,6 +59,8 @@ export default function PlanMyDayModal({
   isOpen,
   onClose,
   uid,
+  clickDate,
+  initialMode = "generate",
   deadlines,
   timetable,
   events,
@@ -77,22 +80,6 @@ export default function PlanMyDayModal({
     });
   }, [today]);
 
-  // Preferences State
-  const [preferences, setPreferences] = useState<PlanPreferences>(() => {
-    const currentMins = timeToMinutes(formatCurrentTimeHHMM(new Date()));
-    let start = "09:00";
-    if (currentMins > timeToMinutes("09:00")) {
-      const roundedMins = Math.ceil(currentMins / 15) * 15;
-      start = minutesToTime(Math.min(roundedMins, timeToMinutes("20:00")));
-    }
-    return {
-      ...DEFAULT_PLAN_PREFERENCES,
-      startTime: start,
-    };
-  });
-
-  const [draftPreferences, setDraftPreferences] = useState<PlanPreferences>(preferences);
-  const [showPreferencesModal, setShowPreferencesModal] = useState(false);
   const [blocks, setBlocks] = useState<ScheduleBlock[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -111,35 +98,50 @@ export default function PlanMyDayModal({
   const [newBlockSubject, setNewBlockSubject] = useState("");
   const [newBlockReason, setNewBlockReason] = useState("");
 
-  // Load existing plan for today on open
+  const planningWindowDisplay = useMemo(() => {
+    const now = clickDate || new Date();
+    const startHHMM = formatCurrentTimeHHMM(now);
+    const startMins = timeToMinutes(startHHMM);
+    const endHHMM = minutesToTime((startMins + 9 * 60) % (24 * 60));
+
+    const format12H = (hhmm: string) => {
+      const [h, m] = hhmm.split(":").map(Number);
+      const ampm = h >= 12 ? "PM" : "AM";
+      const h12 = h % 12 || 12;
+      return `${h12}:${m.toString().padStart(2, "0")} ${ampm}`;
+    };
+
+    return `${format12H(startHHMM)} → ${format12H(endHHMM)} (Next 9 Hours)`;
+  }, [clickDate]);
+
+  // Load existing plan or generate fresh plan on open
   useEffect(() => {
     if (!isOpen || !uid) return;
 
     let isMounted = true;
+    const now = clickDate || new Date();
+
+    // Distinguish: SAVED PLAN EXISTS vs NO SAVED PLAN (Part 12)
     getDailyPlan(uid, todayStr)
       .then((saved) => {
         if (!isMounted) return;
         if (saved && saved.blocks && saved.blocks.length > 0) {
           setBlocks(saved.blocks);
-          if (saved.preferences) {
-            setPreferences(saved.preferences);
-            setDraftPreferences(saved.preferences);
-          }
         } else {
-          handleGeneratePlan(false);
+          handleGeneratePlan(now, false);
         }
       })
       .catch((err) => {
         console.warn("Could not load daily plan:", err);
         if (isMounted) {
-          handleGeneratePlan(false);
+          handleGeneratePlan(now, false);
         }
       });
 
     return () => {
       isMounted = false;
     };
-  }, [isOpen, uid, todayStr]);
+  }, [isOpen, uid, todayStr, clickDate]);
 
   const activeDeadlines = useMemo(
     () => (deadlines || []).filter((d) => !d.completed),
@@ -155,17 +157,22 @@ export default function PlanMyDayModal({
     );
   }, [activeDeadlines, timetable, events, exams]);
 
-  const handleGeneratePlan = async (planFreeTimeAnyway = false) => {
+  const handleGeneratePlan = async (
+    overrideDate?: Date,
+    planFreeTimeAnyway = false
+  ) => {
     setIsGenerating(true);
     setErrorMessage(null);
+    const now = overrideDate || clickDate || new Date();
+    const dynamicPrefs = computeDynamicWindowPreferences(now);
     try {
       const result = await generateDailySchedule({
         deadlines,
         timetable,
         events,
         exams,
-        preferences,
-        currentDate: new Date(),
+        preferences: dynamicPrefs,
+        currentDate: now,
         planFreeTimeAnyway,
       });
 
@@ -179,50 +186,64 @@ export default function PlanMyDayModal({
     }
   };
 
-  const handleApplyPreferences = () => {
-    setPreferences(draftPreferences);
-    setShowPreferencesModal(false);
-    setIsGenerating(true);
-    setErrorMessage(null);
+  const handleRegenerateClick = () => {
+    const freshNow = new Date();
+    const clickHHMM = formatCurrentTimeHHMM(freshNow);
+    const tz = typeof Intl !== "undefined" && Intl.DateTimeFormat ? Intl.DateTimeFormat().resolvedOptions().timeZone : "local";
+    const startMins = timeToMinutes(clickHHMM);
+    const endMins = (startMins + 9 * 60) % (24 * 60);
+    const endHHMM = minutesToTime(endMins);
 
-    generateDailySchedule({
-      deadlines,
-      timetable,
-      events,
-      exams,
-      preferences: draftPreferences,
-      currentDate: new Date(),
-    })
-      .then((res) => {
-        setBlocks(res.blocks);
-        setSavedSuccess(false);
-      })
-      .catch((err) => {
-        console.error("Failed to generate plan with new preferences:", err);
-        setErrorMessage("Could not update schedule. Please try again.");
-      })
-      .finally(() => {
-        setIsGenerating(false);
-      });
+    console.log("PLAN_MY_DAY_CLICK", {
+      localTimestamp: freshNow.toISOString(),
+      timezone: tz,
+      planningStart: clickHHMM,
+      planningEnd: endHHMM,
+    });
+
+    handleGeneratePlan(freshNow, false);
   };
 
   const handleSavePlan = async () => {
-    if (!uid) return;
+    const auth = getFirebaseAuth();
+    const currentUser = auth?.currentUser;
+    if (!currentUser && (!uid || !uid.startsWith("demo-"))) {
+      setErrorMessage("Your session has expired. Please sign in again to save your plan.");
+      return;
+    }
+    const targetUid = currentUser?.uid || uid;
     setIsSaving(true);
+    setErrorMessage(null);
     try {
+      const now = clickDate || new Date();
+      const dynamicPrefs = computeDynamicWindowPreferences(now);
+      const tz = typeof Intl !== "undefined" && Intl.DateTimeFormat ? Intl.DateTimeFormat().resolvedOptions().timeZone : "local";
       const planDoc: SavedDailyPlan = {
         id: todayStr,
+        planId: todayStr,
+        userId: targetUid,
         date: todayStr,
+        timezone: tz,
+        planningStart: dynamicPrefs.startTime,
+        planningEnd: dynamicPrefs.endTime,
         blocks,
-        preferences,
+        preferences: dynamicPrefs,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
-      await saveDailyPlan(uid, planDoc);
+      await saveDailyPlan(targetUid, planDoc);
       setSavedSuccess(true);
       setTimeout(() => setSavedSuccess(false), 3000);
-    } catch (err) {
-      console.error("Failed to save plan:", err);
+    } catch (err: any) {
+      console.warn("Could not save plan:", err?.message || err);
+      let msg = err?.message || err?.error || "Failed to save plan to Cloud Firestore.";
+      try {
+        const parsed = JSON.parse(msg);
+        if (parsed?.error) {
+          msg = parsed.error;
+        }
+      } catch {}
+      setErrorMessage(`Save Error: ${msg}`);
     } finally {
       setIsSaving(false);
     }
@@ -232,11 +253,37 @@ export default function PlanMyDayModal({
     if (block.deadlineId) {
       await onCompleteDeadline(block.deadlineId);
     }
-    setBlocks((prev) =>
-      prev.map((b) =>
-        b.id === block.id ? { ...b, isCompleted: !b.isCompleted } : b
-      )
+    const updatedBlocks = blocks.map((b) =>
+      b.id === block.id ? { ...b, isCompleted: !b.isCompleted } : b
     );
+    setBlocks(updatedBlocks);
+
+    // Auto-sync completed state to Firestore
+    if (uid) {
+      try {
+        const auth = getFirebaseAuth();
+        const targetUid = auth?.currentUser?.uid || uid;
+        const now = clickDate || new Date();
+        const dynamicPrefs = computeDynamicWindowPreferences(now);
+        const tz = typeof Intl !== "undefined" && Intl.DateTimeFormat ? Intl.DateTimeFormat().resolvedOptions().timeZone : "local";
+        const planDoc: SavedDailyPlan = {
+          id: todayStr,
+          planId: todayStr,
+          userId: targetUid,
+          date: todayStr,
+          timezone: tz,
+          planningStart: dynamicPrefs.startTime,
+          planningEnd: dynamicPrefs.endTime,
+          blocks: updatedBlocks,
+          preferences: dynamicPrefs,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        await saveDailyPlan(targetUid, planDoc);
+      } catch (err) {
+        console.warn("Auto-sync completed state to Firestore failed gracefully:", err);
+      }
+    }
   };
 
   const handleRemoveBlock = (blockId: string) => {
@@ -289,23 +336,15 @@ export default function PlanMyDayModal({
             <h2 className="text-xl sm:text-2xl font-bold text-text-primary tracking-tight font-['Space_Grotesk',sans-serif]">
               Plan My Day
             </h2>
-            <p className="text-xs sm:text-sm text-text-muted mt-0.5">
-              Today, {formattedTodayDate}
+            <p className="text-xs sm:text-sm text-text-muted mt-0.5 flex flex-wrap items-center gap-2">
+              <span>Today, {formattedTodayDate}</span>
+              <span className="px-2.5 py-0.5 rounded-md text-[11px] font-mono bg-blue-500/10 text-blue-600 dark:text-blue-400 font-semibold border border-blue-500/20">
+                {planningWindowDisplay}
+              </span>
             </p>
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => {
-                setDraftPreferences(preferences);
-                setShowPreferencesModal(true);
-              }}
-              className="px-3 py-1.5 rounded-xl border border-border text-xs font-mono text-text-secondary hover:text-text-primary hover:bg-surface-subtle transition-colors flex items-center gap-1.5 cursor-pointer"
-            >
-              <Sliders size={13} />
-              <span>Preferences</span>
-            </button>
-
             <button
               onClick={onClose}
               className="p-1.5 rounded-xl text-text-muted hover:text-text-primary hover:bg-surface-subtle transition-colors cursor-pointer"
@@ -332,7 +371,7 @@ export default function PlanMyDayModal({
                 <RotateCcw size={18} className="text-primary animate-spin" />
               </div>
               <p className="text-sm font-medium text-text-primary">
-                Generating your plan...
+                Generating your next 9 hours...
               </p>
             </div>
           ) : !hasAnyData && blocks.length === 0 ? (
@@ -369,7 +408,7 @@ export default function PlanMyDayModal({
                 )}
               </div>
               <button
-                onClick={() => handleGeneratePlan(true)}
+                onClick={() => handleGeneratePlan(undefined, true)}
                 className="mt-4 text-xs text-primary hover:underline cursor-pointer"
               >
                 Plan free time anyway
@@ -382,7 +421,7 @@ export default function PlanMyDayModal({
                 No blocks scheduled for this time window.
               </p>
               <button
-                onClick={() => handleGeneratePlan(true)}
+                onClick={() => handleGeneratePlan(undefined, true)}
                 className="mt-3 px-4 py-2 rounded-xl text-xs font-semibold text-white bg-primary hover:brightness-110 cursor-pointer"
               >
                 Generate Plan
@@ -441,114 +480,105 @@ export default function PlanMyDayModal({
                               Event
                             </span>
                           )}
+                          {isTask && (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/20">
+                              Deadline Work
+                            </span>
+                          )}
                           {isRevision && (
-                            <span className="px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border border-indigo-500/20">
-                              Revision
+                            <span className="px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20">
+                              Exam Revision
                             </span>
                           )}
                           {isBreak && (
-                            <span className="px-2 py-0.5 rounded text-[10px] font-mono text-text-muted bg-surface-subtle border border-border/50">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20">
                               Break
                             </span>
                           )}
-                          {isSuggestion && !isRevision && (
-                            <span className="px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20">
-                              Suggestion
+                          {isSuggestion && (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 border border-cyan-500/20">
+                              AI Suggestion
                             </span>
                           )}
-                          {isTask && block.priority && (
-                            <span
-                              className={`px-2 py-0.5 rounded text-[10px] font-mono font-medium ${
-                                block.priority === "CRITICAL"
-                                  ? "bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-500/25"
-                                  : block.priority === "HIGH"
-                                  ? "bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/25"
-                                  : "bg-surface-subtle text-text-secondary border border-border"
-                              }`}
-                            >
+
+                          {block.priority && (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-surface-subtle text-text-secondary border border-border/60">
                               {block.priority}
-                            </span>
-                          )}
-
-                          {/* Subject */}
-                          {block.subject && (
-                            <span className="text-xs text-text-secondary font-medium">
-                              {block.subject}
-                            </span>
-                          )}
-
-                          {/* Location */}
-                          {block.location && (
-                            <span className="text-xs text-text-muted flex items-center gap-1">
-                              <MapPin size={11} />
-                              <span>{block.location}</span>
                             </span>
                           )}
                         </div>
 
-                        {/* Activity Name */}
-                        <h4
-                          className={`text-sm sm:text-base font-semibold tracking-tight ${
-                            block.isCompleted
-                              ? "line-through text-text-muted"
-                              : "text-text-primary"
-                          }`}
-                        >
-                          {block.activity}
-                        </h4>
+                        {/* Activity Title */}
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleBlockComplete(block)}
+                            className={`w-4 h-4 rounded flex items-center justify-center border cursor-pointer transition-colors ${
+                              block.isCompleted
+                                ? "bg-emerald-600 border-emerald-600 text-white"
+                                : "border-border hover:border-primary"
+                            }`}
+                          >
+                            {block.isCompleted && <Check size={12} />}
+                          </button>
+                          <h4
+                            className={`text-sm font-semibold text-text-primary ${
+                              block.isCompleted ? "line-through text-text-muted" : ""
+                            }`}
+                          >
+                            {block.activity}
+                          </h4>
+                        </div>
 
-                        {/* Short Reason only when useful */}
-                        {block.reason && !isBreak && (
-                          <p className="text-xs text-text-muted mt-0.5 leading-normal">
-                            {block.reason}
-                          </p>
-                        )}
+                        {/* Subject & Reason */}
+                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-muted">
+                          {block.subject && (
+                            <span className="flex items-center gap-1 font-medium">
+                              <BookOpen size={12} />
+                              {block.subject}
+                            </span>
+                          )}
+                          {block.location && (
+                            <span className="flex items-center gap-1">
+                              <MapPin size={12} />
+                              {block.location}
+                            </span>
+                          )}
+                          {block.reason && (
+                            <span className="italic text-text-secondary">
+                              · {block.reason}
+                            </span>
+                          )}
+                        </div>
                       </div>
 
                       {/* Right: Actions */}
-                      <div className="flex items-center gap-1 flex-shrink-0 pt-0.5">
-                        {/* Complete Task Toggle */}
-                        {(isTask || isRevision || isSuggestion) && (
-                          <button
-                            onClick={() => handleToggleBlockComplete(block)}
-                            className={`p-1.5 rounded-lg border text-xs font-mono transition-colors cursor-pointer ${
-                              block.isCompleted
-                                ? "bg-emerald-500/15 border-emerald-500/30 text-emerald-700 dark:text-emerald-300"
-                                : "border-border text-text-muted hover:text-text-primary hover:bg-surface-subtle"
-                            }`}
-                            title={block.isCompleted ? "Completed" : "Mark done"}
-                          >
-                            <Check size={14} />
-                          </button>
-                        )}
-
+                      <div className="flex items-center gap-1">
                         {block.deadlineId && (
                           <button
-                            onClick={() => {
-                              onClose();
-                              onViewTask(block.deadlineId!);
-                            }}
-                            className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface-subtle transition-colors cursor-pointer"
-                            title="View deadline"
+                            type="button"
+                            onClick={() => onViewTask(block.deadlineId!)}
+                            className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-surface-subtle transition-colors cursor-pointer"
+                            title="View Deadline"
                           >
                             <ExternalLink size={14} />
                           </button>
                         )}
-
                         <button
+                          type="button"
                           onClick={() => setEditingBlock(block)}
                           className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface-subtle transition-colors cursor-pointer"
                           title="Edit block"
                         >
-                          <Edit2 size={13} />
+                          <Edit2 size={14} />
                         </button>
-
                         <button
+                          type="button"
                           onClick={() => handleRemoveBlock(block.id)}
                           className="p-1.5 rounded-lg text-text-muted hover:text-rose-500 hover:bg-rose-500/10 transition-colors cursor-pointer"
                           title="Remove block"
                         >
-                          <Trash2 size={13} />
+                          <Trash2 size={14} />
                         </button>
                       </div>
                     </div>
@@ -559,186 +589,63 @@ export default function PlanMyDayModal({
           )}
         </div>
 
-        {/* 3. CLEAN FOOTER CONTROLS */}
-        <div className="px-5 sm:px-6 py-4 border-t border-border bg-surface flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
+        {/* 3. FOOTER ACTIONS */}
+        <div className="px-6 py-4 border-t border-border flex flex-col sm:flex-row items-center justify-between gap-3 bg-surface">
+          <div className="flex items-center gap-2 w-full sm:w-auto">
             <button
+              type="button"
               onClick={() => setIsAddingBlock(true)}
-              className="px-3 py-2 rounded-xl text-xs font-mono text-text-secondary hover:text-text-primary bg-surface-subtle hover:bg-surface border border-border transition-colors flex items-center gap-1.5 cursor-pointer"
+              className="px-3.5 py-2 rounded-xl border border-border text-xs font-semibold text-text-primary hover:bg-surface-subtle transition-colors flex items-center justify-center gap-1.5 cursor-pointer w-full sm:w-auto"
             >
-              <Plus size={13} />
-              <span>Add Block</span>
+              <Plus size={14} />
+              <span>Add Custom Block</span>
             </button>
-
             <button
-              onClick={() => handleGeneratePlan(false)}
+              type="button"
+              onClick={handleRegenerateClick}
               disabled={isGenerating}
-              className="px-3 py-2 rounded-xl text-xs font-mono text-text-secondary hover:text-text-primary bg-surface-subtle hover:bg-surface border border-border transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              className="px-3.5 py-2 rounded-xl border border-border text-xs font-semibold text-text-primary hover:bg-surface-subtle transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 w-full sm:w-auto"
             >
-              <RotateCcw size={13} className={isGenerating ? "animate-spin" : ""} />
-              <span>Regenerate</span>
+              <RotateCcw size={14} className={isGenerating ? "animate-spin" : ""} />
+              <span>Regenerate (Next 9 Hours)</span>
             </button>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end">
             <button
-              onClick={handleSavePlan}
-              disabled={isSaving || blocks.length === 0}
-              className="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-primary hover:brightness-110 transition-all flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
-            >
-              <Save size={13} />
-              <span>{savedSuccess ? "Saved" : isSaving ? "Saving..." : "Save Plan"}</span>
-            </button>
-
-            <button
+              type="button"
               onClick={onClose}
-              className="px-3.5 py-2 rounded-xl text-xs font-mono text-text-secondary hover:text-text-primary bg-surface border border-border transition-colors cursor-pointer"
+              className="px-4 py-2 rounded-xl text-xs font-medium text-text-secondary hover:text-text-primary cursor-pointer"
             >
               Close
+            </button>
+            <button
+              type="button"
+              onClick={handleSavePlan}
+              disabled={isSaving || blocks.length === 0}
+              className="px-5 py-2 rounded-xl text-xs font-semibold text-white bg-primary hover:brightness-110 transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-xs active:scale-95"
+            >
+              {isSaving ? (
+                <>
+                  <RotateCcw size={14} className="animate-spin" />
+                  <span>Saving...</span>
+                </>
+              ) : savedSuccess ? (
+                <>
+                  <Check size={14} className="text-emerald-300" />
+                  <span>Saved!</span>
+                </>
+              ) : (
+                <>
+                  <Save size={14} />
+                  <span>Save Plan</span>
+                </>
+              )}
             </button>
           </div>
         </div>
 
-        {/* 4. PREFERENCES MODAL */}
-        <AnimatePresence>
-          {showPreferencesModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-              <motion.div
-                initial={{ scale: 0.95, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.95, opacity: 0 }}
-                className="w-full max-w-md bg-surface-elevated border border-border rounded-2xl shadow-xl p-5 sm:p-6 space-y-4"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="flex items-center justify-between border-b border-border pb-3">
-                  <h3 className="text-base font-bold text-text-primary font-['Space_Grotesk',sans-serif]">
-                    Planner Preferences
-                  </h3>
-                  <button
-                    onClick={() => setShowPreferencesModal(false)}
-                    className="p-1 rounded-lg text-text-muted hover:text-text-primary cursor-pointer"
-                  >
-                    <X size={16} />
-                  </button>
-                </div>
-
-                <div className="space-y-4 pt-1">
-                  {/* Start & End Times */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                    <div>
-                      <label className="text-xs font-medium text-text-secondary block mb-1.5">
-                        Available from
-                      </label>
-                      <input
-                        type="time"
-                        value={draftPreferences.startTime}
-                        onChange={(e) =>
-                          setDraftPreferences({
-                            ...draftPreferences,
-                            startTime: e.target.value,
-                          })
-                        }
-                        className="w-full px-3 py-2 rounded-xl bg-surface border border-border text-xs font-mono text-text-primary focus:outline-none focus:border-primary"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-xs font-medium text-text-secondary block mb-1.5">
-                        Available until
-                      </label>
-                      <input
-                        type="time"
-                        value={draftPreferences.endTime}
-                        onChange={(e) =>
-                          setDraftPreferences({
-                            ...draftPreferences,
-                            endTime: e.target.value,
-                          })
-                        }
-                        className="w-full px-3 py-2 rounded-xl bg-surface border border-border text-xs font-mono text-text-primary focus:outline-none focus:border-primary"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Session Length */}
-                  <div>
-                    <label className="text-xs font-medium text-text-secondary block mb-1.5">
-                      Session length
-                    </label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {[30, 45, 50, 60, 90].map((mins) => (
-                        <button
-                          key={mins}
-                          type="button"
-                          onClick={() =>
-                            setDraftPreferences({
-                              ...draftPreferences,
-                              sessionLengthMinutes: mins,
-                            })
-                          }
-                          className={`py-2 rounded-xl text-xs font-mono transition-colors cursor-pointer border ${
-                            draftPreferences.sessionLengthMinutes === mins
-                              ? "bg-primary text-primary-foreground border-primary font-semibold"
-                              : "bg-surface border-border text-text-secondary hover:text-text-primary"
-                          }`}
-                        >
-                          {mins} min
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Break Duration */}
-                  <div>
-                    <label className="text-xs font-medium text-text-secondary block mb-1.5">
-                      Break duration
-                    </label>
-                    <div className="grid grid-cols-4 gap-2">
-                      {[5, 10, 15, 20].map((mins) => (
-                        <button
-                          key={mins}
-                          type="button"
-                          onClick={() =>
-                            setDraftPreferences({
-                              ...draftPreferences,
-                              breakLengthMinutes: mins,
-                            })
-                          }
-                          className={`py-2 rounded-xl text-xs font-mono transition-colors cursor-pointer border ${
-                            draftPreferences.breakLengthMinutes === mins
-                              ? "bg-primary text-primary-foreground border-primary font-semibold"
-                              : "bg-surface border-border text-text-secondary hover:text-text-primary"
-                          }`}
-                        >
-                          {mins} min
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-border">
-                  <button
-                    type="button"
-                    onClick={() => setShowPreferencesModal(false)}
-                    className="px-4 py-2 rounded-xl text-xs font-mono text-text-secondary hover:text-text-primary cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleApplyPreferences}
-                    className="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-primary hover:brightness-110 transition-all cursor-pointer shadow-xs"
-                  >
-                    Apply & Update
-                  </button>
-                </div>
-              </motion.div>
-            </div>
-          )}
-        </AnimatePresence>
-
-        {/* 5. ADD BLOCK MODAL */}
+        {/* 4. ADD BLOCK MODAL */}
         <AnimatePresence>
           {isAddingBlock && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
@@ -751,7 +658,7 @@ export default function PlanMyDayModal({
               >
                 <div className="flex items-center justify-between border-b border-border pb-3">
                   <h3 className="text-base font-bold text-text-primary font-['Space_Grotesk',sans-serif]">
-                    Add Block
+                    Add Custom Block
                   </h3>
                   <button
                     onClick={() => setIsAddingBlock(false)}
@@ -868,7 +775,7 @@ export default function PlanMyDayModal({
           )}
         </AnimatePresence>
 
-        {/* 6. EDIT BLOCK MODAL */}
+        {/* 5. EDIT BLOCK MODAL */}
         <AnimatePresence>
           {editingBlock && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
