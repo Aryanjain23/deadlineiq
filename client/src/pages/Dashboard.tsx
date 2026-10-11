@@ -93,6 +93,8 @@ import ThemeToggle from "@/components/ThemeToggle";
 import { PWAInstallButton } from "@/components/PWAInstallButton";
 import { formatDateToYYYYMMDD, formatCurrentTimeHHMM, timeToMinutes, minutesToTime, evaluateActivePlanState } from '@/lib/smartPlannerEngine';
 import type { SavedDailyPlan, ScheduleBlock } from '@/lib/firebase/types';
+import { startNotificationScheduler } from "@/lib/notifications";
+import { getUserProfile } from "@/lib/services/userService";
 
 
 function formatShortDueDate(dateStr: string): string {
@@ -213,6 +215,31 @@ export default function Dashboard() {
       unsubPlan();
     };
   }, [currentUser, isAuthLoading, setLocation]);
+
+  // Automated background evaluation of approaching deadlines & exam reminders
+  useEffect(() => {
+    if (!currentUser) return;
+    const userUid = currentUser.uid || (currentUser.usn ? `usn_${currentUser.usn}` : "guest");
+    let preferences = { deadlineAlerts: true, examAlerts: true, dailyPlanReminder: true };
+
+    getUserProfile(userUid).then((profile) => {
+      if (profile?.preferences) {
+        preferences = {
+          deadlineAlerts: profile.preferences.deadlineAlerts ?? true,
+          examAlerts: profile.preferences.examAlerts ?? true,
+          dailyPlanReminder: profile.preferences.dailyPlanReminder ?? true,
+        };
+      }
+    });
+
+    const cleanup = startNotificationScheduler(
+      () => deadlines,
+      () => exams,
+      () => preferences
+    );
+
+    return cleanup;
+  }, [currentUser, deadlines, exams]);
 
   // Open modal if linked with query parameter (e.g., from Calendar page navigation)
   useEffect(() => {

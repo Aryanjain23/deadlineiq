@@ -497,3 +497,12 @@ html.theme-transitioning *::after {
   transform: translateY(0.5px) scale(0.98);
 }
 
+/* Hide scrollbar utility for smooth touch and horizontal overflow */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+

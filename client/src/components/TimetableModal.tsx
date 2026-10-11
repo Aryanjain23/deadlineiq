@@ -203,32 +203,32 @@ export default function TimetableModal({
       />
 
       {/* Modal Dialog */}
-      <div className="relative w-full max-w-4xl my-auto rounded-3xl border border-border bg-surface-elevated backdrop-blur-3xl p-6 sm:p-8 shadow-2xl z-10 max-h-[92vh] flex flex-col transition-colors">
+      <div className="relative w-full max-w-4xl my-auto rounded-3xl border border-border bg-surface-elevated backdrop-blur-3xl p-4 sm:p-6 md:p-8 shadow-2xl z-10 max-h-[94vh] sm:max-h-[92vh] flex flex-col transition-colors">
         {/* Close Button */}
         <button
           onClick={onClose}
-          className="absolute top-6 right-6 w-8 h-8 rounded-full border border-border bg-surface text-text-muted hover:text-text-primary hover:bg-surface-subtle flex items-center justify-center transition-all cursor-pointer z-20 shadow-xs"
+          className="absolute top-4 right-4 sm:top-6 sm:right-6 w-8 h-8 rounded-full border border-border bg-surface text-text-muted hover:text-text-primary hover:bg-surface-subtle flex items-center justify-center transition-all cursor-pointer z-20 shadow-xs"
           aria-label="Close dialog"
         >
           <X size={15} />
         </button>
 
         {/* Modal Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-border">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 pb-4 sm:pb-5 border-b border-border pr-8 sm:pr-0">
           <div>
             <div className="inline-flex items-center gap-2 text-[10px] font-mono tracking-widest text-[#0284c7] dark:text-[#76d8fb] uppercase mb-1">
               <span className="w-1.5 h-1.5 rounded-full bg-[#0284c7] dark:bg-[#76d8fb]" />
               <span>WEEKLY SCHEDULE · CLASSES</span>
             </div>
-            <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight text-text-primary font-['Space_Grotesk',sans-serif]">
+            <h2 className="text-xl sm:text-2xl md:text-3xl font-semibold tracking-tight text-text-primary font-['Space_Grotesk',sans-serif]">
               My Timetable
             </h2>
-            <p className="text-xs text-text-muted mt-1">
+            <p className="text-xs text-text-muted mt-0.5 sm:mt-1">
               Your recurring weekly class schedule.
             </p>
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+          <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap pt-1 sm:pt-0">
             {!isAdding && (
               <button
                 type="button"
@@ -307,7 +307,7 @@ export default function TimetableModal({
         {isAdding && (
           <form
             onSubmit={handleSubmit}
-            className="my-4 p-4 sm:p-5 rounded-2xl border border-border bg-surface/90 backdrop-blur-xl shadow-lg space-y-4"
+            className="my-3 sm:my-4 p-4 sm:p-5 rounded-2xl border border-border bg-surface/90 backdrop-blur-xl shadow-lg space-y-4"
           >
             <div className="flex items-center justify-between">
               <span className="text-xs font-mono text-[#0284c7] dark:text-[#76d8fb] uppercase tracking-wider flex items-center gap-1.5">
@@ -453,43 +453,49 @@ export default function TimetableModal({
         )}
 
         {/* View Mode Navigation Tabs */}
-        <div className="py-3 flex items-center justify-between gap-3 border-b border-border overflow-x-auto">
-          <div className="flex items-center gap-1.5 bg-surface p-1 rounded-2xl border border-border">
+        <div className="py-2.5 sm:py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 border-b border-border">
+          <div className="grid grid-cols-3 sm:flex items-center gap-1 bg-surface p-1 rounded-xl sm:rounded-2xl border border-border w-full sm:w-auto">
             <button
+              type="button"
               onClick={() => setViewMode("today")}
-              className={`px-3 py-1.5 rounded-xl text-xs font-mono transition-all flex items-center gap-1.5 cursor-pointer ${
+              className={`px-2 sm:px-3 py-1.5 rounded-lg sm:rounded-xl text-xs font-mono transition-all flex items-center justify-center gap-1.5 cursor-pointer text-center truncate ${
                 viewMode === "today"
                   ? "bg-sky-500/15 border border-sky-500/40 text-sky-700 dark:text-[#bae6fd] shadow-xs font-semibold"
-                  : "text-text-secondary hover:text-text-primary hover:bg-surface-subtle"
+                  : "text-text-secondary hover:text-text-primary hover:bg-surface-subtle border border-transparent"
               }`}
             >
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-              <span>Today&apos;s Schedule</span>
-              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-surface-subtle text-text-secondary">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0" />
+              <span className="hidden sm:inline">Today&apos;s Schedule</span>
+              <span className="sm:hidden font-medium">Today</span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-surface-subtle text-text-secondary flex-shrink-0">
                 {todayClasses.length}
               </span>
             </button>
 
             <button
+              type="button"
               onClick={() => setViewMode("week")}
-              className={`px-3 py-1.5 rounded-xl text-xs font-mono transition-all cursor-pointer ${
+              className={`px-2 sm:px-3 py-1.5 rounded-lg sm:rounded-xl text-xs font-mono transition-all flex items-center justify-center gap-1 cursor-pointer text-center truncate ${
                 viewMode === "week"
                   ? "bg-sky-500/15 border border-sky-500/40 text-sky-700 dark:text-[#bae6fd] shadow-xs font-semibold"
-                  : "text-text-secondary hover:text-text-primary hover:bg-surface-subtle"
+                  : "text-text-secondary hover:text-text-primary hover:bg-surface-subtle border border-transparent"
               }`}
             >
-              Full Week Grid
+              <span className="hidden sm:inline">Full Week Grid</span>
+              <span className="sm:hidden font-medium">Full Week</span>
             </button>
 
             <button
+              type="button"
               onClick={() => setViewMode("day")}
-              className={`px-3 py-1.5 rounded-xl text-xs font-mono transition-all cursor-pointer ${
+              className={`px-2 sm:px-3 py-1.5 rounded-lg sm:rounded-xl text-xs font-mono transition-all flex items-center justify-center gap-1 cursor-pointer text-center truncate ${
                 viewMode === "day"
                   ? "bg-sky-500/15 border border-sky-500/40 text-sky-700 dark:text-[#bae6fd] shadow-xs font-semibold"
-                  : "text-text-secondary hover:text-text-primary hover:bg-surface-subtle"
+                  : "text-text-secondary hover:text-text-primary hover:bg-surface-subtle border border-transparent"
               }`}
             >
-              Day by Day
+              <span className="hidden sm:inline">Day by Day</span>
+              <span className="sm:hidden font-medium">Day View</span>
             </button>
           </div>
 
@@ -500,7 +506,7 @@ export default function TimetableModal({
 
         {/* Day Selector for Day view */}
         {viewMode === "day" && (
-          <div className="py-2.5 flex items-center gap-1.5 overflow-x-auto border-b border-border">
+          <div className="py-2 flex items-center gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar scroll-smooth border-b border-border px-0.5">
             {DAYS_OF_WEEK.map((d) => {
               const isToday = d === currentDayName;
               const isSelected = d === activeDay;
@@ -509,8 +515,9 @@ export default function TimetableModal({
               return (
                 <button
                   key={d}
+                  type="button"
                   onClick={() => setActiveDay(d)}
-                  className={`px-3 py-1 rounded-xl text-xs font-mono transition-all flex items-center gap-1.5 cursor-pointer ${
+                  className={`flex-shrink-0 px-3 py-1.5 rounded-xl text-xs font-mono transition-all flex items-center gap-1.5 cursor-pointer select-none ${
                     isSelected
                       ? "border border-[#76d8fb]/40 bg-[#76d8fb]/15 text-sky-700 dark:text-[#bae6fd] font-semibold shadow-xs"
                       : "border border-border bg-surface text-text-secondary hover:text-text-primary hover:bg-surface-subtle"
@@ -518,10 +525,10 @@ export default function TimetableModal({
                 >
                   <span>{d.slice(0, 3)}</span>
                   {isToday && (
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" title="Today" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0" title="Today" />
                   )}
                   {count > 0 && (
-                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${isSelected ? "bg-accent/20 text-accent font-semibold" : "bg-surface-subtle text-text-muted"}`}>
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full flex-shrink-0 ${isSelected ? "bg-accent/20 text-accent font-semibold" : "bg-surface-subtle text-text-muted"}`}>
                       {count}
                     </span>
                   )}
@@ -532,7 +539,7 @@ export default function TimetableModal({
         )}
 
         {/* Timetable Content Body */}
-        <div className="flex-1 overflow-y-auto py-4 min-h-[300px]">
+        <div className="flex-1 overflow-y-auto py-3 sm:py-4 min-h-[300px]">
           
           {/* ========================================================= */}
           {/* 1. TODAY'S SCHEDULE VIEW                                  */}
@@ -554,24 +561,24 @@ export default function TimetableModal({
                   </div>
 
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mt-1">
-                    <div>
-                      <h4 className="text-xl font-semibold text-text-primary tracking-tight">
+                    <div className="min-w-0 flex-1">
+                      <h4 className="text-lg sm:text-xl font-semibold text-text-primary tracking-tight break-words">
                         {nextUpcoming.entry.subject}
                       </h4>
-                      <div className="flex flex-wrap items-center gap-3 text-xs text-text-secondary mt-1 font-mono">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-secondary mt-1 font-mono">
                         <span className="flex items-center gap-1 text-emerald-700 dark:text-[#86e2be]">
-                          <Clock size={12} className="text-emerald-500" />
+                          <Clock size={12} className="text-emerald-500 flex-shrink-0" />
                           <span>{formatTime12Hour(nextUpcoming.entry.startTime)} – {formatTime12Hour(nextUpcoming.entry.endTime)}</span>
                         </span>
                         {nextUpcoming.entry.room && (
                           <span className="flex items-center gap-1 text-emerald-800 dark:text-[#d1fae5]">
-                            <MapPin size={12} className="text-emerald-500" />
+                            <MapPin size={12} className="text-emerald-500 flex-shrink-0" />
                             <span>{nextUpcoming.entry.room}</span>
                           </span>
                         )}
                         {nextUpcoming.entry.instructor && (
                           <span className="flex items-center gap-1 text-sky-700 dark:text-[#93c5fd]">
-                            <User size={12} className="text-sky-500" />
+                            <User size={12} className="text-sky-500 flex-shrink-0" />
                             <span>{nextUpcoming.entry.instructor}</span>
                           </span>
                         )}
@@ -579,8 +586,9 @@ export default function TimetableModal({
                     </div>
 
                     <button
+                      type="button"
                       onClick={() => handleStartEdit(nextUpcoming.entry)}
-                      className="self-start sm:self-auto px-3 py-1.5 rounded-xl border border-border bg-surface hover:bg-surface-elevated text-xs font-mono text-text-primary flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                      className="self-start sm:self-auto px-3 py-1.5 rounded-xl border border-border bg-surface hover:bg-surface-elevated text-xs font-mono text-text-primary flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs flex-shrink-0"
                     >
                       <Edit2 size={12} />
                       <span>Edit</span>
@@ -591,9 +599,9 @@ export default function TimetableModal({
 
               {/* Today's Full List */}
               <div className="pt-2">
-                <div className="flex items-center justify-between pb-2 mb-2">
-                  <h3 className="text-sm font-semibold text-text-primary font-mono tracking-wider uppercase flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-[#0284c7] dark:bg-[#76d8fb]" />
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 pb-2 mb-2 border-b border-border/40">
+                  <h3 className="text-xs sm:text-sm font-semibold text-text-primary font-mono tracking-wider uppercase flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-[#0284c7] dark:bg-[#76d8fb] flex-shrink-0" />
                     <span>All Classes for Today ({currentDayName})</span>
                   </h3>
                   <span className="text-xs font-mono text-text-muted">
@@ -602,11 +610,12 @@ export default function TimetableModal({
                 </div>
 
                 {todayClasses.length === 0 ? (
-                  <div className="p-8 text-center rounded-2xl border border-dashed border-border bg-surface-subtle">
+                  <div className="p-6 sm:p-8 text-center rounded-2xl border border-dashed border-border bg-surface-subtle">
                     <p className="text-sm text-text-secondary">No classes scheduled for today ({currentDayName}).</p>
                     <p className="text-xs text-text-muted mt-1">Enjoy your study time or check the full weekly schedule.</p>
-                    <div className="flex items-center justify-center gap-3 mt-4">
+                    <div className="flex items-center justify-center gap-3 mt-4 flex-wrap">
                       <button
+                        type="button"
                         onClick={() => {
                           setDay(currentDayName);
                           setIsAdding(true);
@@ -616,6 +625,7 @@ export default function TimetableModal({
                         <Plus size={13} /> Add class for today
                       </button>
                       <button
+                        type="button"
                         onClick={() => setViewMode("week")}
                         className="px-3.5 py-1.5 rounded-xl text-xs text-text-primary border border-border bg-surface hover:bg-surface-elevated font-mono inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
                       >
@@ -629,19 +639,19 @@ export default function TimetableModal({
                     {todayClasses.map((entry) => (
                       <div
                         key={entry.id}
-                        className="p-4 rounded-2xl border border-border hover:border-accent/40 bg-surface hover:bg-surface-elevated transition-all flex items-center justify-between group shadow-xs"
+                        className="p-3.5 sm:p-4 rounded-2xl border border-border hover:border-accent/40 bg-surface hover:bg-surface-elevated transition-all flex items-start sm:items-center justify-between gap-3 group shadow-xs"
                       >
-                        <div className="flex items-center gap-4">
-                          <div className="w-10 h-10 rounded-xl bg-sky-500/10 border border-sky-500/30 text-sky-600 dark:text-[#76d8fb] flex items-center justify-center font-mono text-xs font-semibold">
+                        <div className="flex items-start sm:items-center gap-3 sm:gap-4 min-w-0 flex-1">
+                          <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-sky-500/10 border border-sky-500/30 text-sky-600 dark:text-[#76d8fb] flex items-center justify-center font-mono text-xs font-semibold flex-shrink-0">
                             <Clock size={16} />
                           </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-semibold text-text-primary text-sm">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-semibold text-text-primary text-xs sm:text-sm break-words">
                                 {entry.subject}
                               </span>
                               {entry.subjectCode && (
-                                <span className="px-1.5 py-0.5 rounded bg-surface-subtle border border-border text-[10px] font-mono text-text-muted">
+                                <span className="px-1.5 py-0.5 rounded bg-surface-subtle border border-border text-[10px] font-mono text-text-muted flex-shrink-0">
                                   {entry.subjectCode}
                                 </span>
                               )}
@@ -652,31 +662,33 @@ export default function TimetableModal({
                               </span>
                               {entry.room && (
                                 <span className="flex items-center gap-1 text-text-secondary">
-                                  <MapPin size={11} className="text-accent" />
-                                  {entry.room}
+                                  <MapPin size={11} className="text-accent flex-shrink-0" />
+                                  <span>{entry.room}</span>
                                 </span>
                               )}
                               {entry.instructor && (
                                 <span className="flex items-center gap-1 text-purple-700 dark:text-[#a5b4fc]">
-                                  <User size={11} className="text-purple-500" />
-                                  {entry.instructor}
+                                  <User size={11} className="text-purple-500 flex-shrink-0" />
+                                  <span>{entry.instructor}</span>
                                 </span>
                               )}
                             </div>
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2 opacity-80 group-hover:opacity-100 transition-opacity">
+                        <div className="flex items-center gap-1.5 flex-shrink-0 pt-0.5 sm:pt-0">
                           <button
+                            type="button"
                             onClick={() => handleStartEdit(entry)}
-                            className="p-1.5 rounded-lg border border-border bg-surface text-text-muted hover:text-text-primary hover:bg-surface-subtle cursor-pointer shadow-xs"
+                            className="p-1.5 rounded-lg border border-border bg-surface text-text-muted hover:text-text-primary hover:bg-surface-subtle cursor-pointer shadow-xs transition-colors"
                             title="Edit"
                           >
                             <Edit2 size={13} />
                           </button>
                           <button
+                            type="button"
                             onClick={() => handleDelete(entry.id)}
-                            className="p-1.5 rounded-lg border border-rose-500/20 bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-500/20 cursor-pointer shadow-xs"
+                            className="p-1.5 rounded-lg border border-rose-500/20 bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-500/20 cursor-pointer shadow-xs transition-colors"
                             title="Delete"
                           >
                             <Trash2 size={13} />
@@ -695,24 +707,27 @@ export default function TimetableModal({
           {/* ========================================================= */}
           {viewMode === "day" && (
             <div className="space-y-3">
-              <div className="flex items-center justify-between pb-2">
-                <h3 className="text-base font-semibold text-text-primary font-['Space_Grotesk',sans-serif] flex items-center gap-2">
-                  <span>{activeDay} Schedule</span>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-2 pb-2.5 mb-1 border-b border-border/50">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-sm sm:text-base font-semibold text-text-primary font-['Space_Grotesk',sans-serif] flex items-center gap-2">
+                    <span>{activeDay} Schedule</span>
+                  </h3>
                   {activeDay === currentDayName && (
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-mono text-emerald-700 dark:text-[#75d5b0] bg-emerald-500/15 border border-emerald-500/30">
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-mono text-emerald-700 dark:text-[#75d5b0] bg-emerald-500/15 border border-emerald-500/30 font-semibold">
                       TODAY
                     </span>
                   )}
-                </h3>
+                </div>
                 <span className="text-xs font-mono text-text-muted">
-                  {getEntriesForDay(activeDay).length} classes scheduled
+                  {getEntriesForDay(activeDay).length} class{getEntriesForDay(activeDay).length === 1 ? "" : "es"} scheduled
                 </span>
               </div>
 
               {getEntriesForDay(activeDay).length === 0 ? (
-                <div className="p-8 text-center rounded-2xl border border-dashed border-border bg-surface-subtle">
+                <div className="p-6 sm:p-8 text-center rounded-2xl border border-dashed border-border bg-surface-subtle">
                   <p className="text-sm text-text-muted">No classes scheduled for {activeDay}.</p>
                   <button
+                    type="button"
                     onClick={() => {
                       setDay(activeDay);
                       setIsAdding(true);
@@ -727,19 +742,19 @@ export default function TimetableModal({
                   {getEntriesForDay(activeDay).map((entry) => (
                     <div
                       key={entry.id}
-                      className="p-4 rounded-2xl border border-border hover:border-accent/40 bg-surface hover:bg-surface-elevated transition-all flex items-center justify-between group shadow-xs"
+                      className="p-3.5 sm:p-4 rounded-2xl border border-border hover:border-accent/40 bg-surface hover:bg-surface-elevated transition-all flex items-start sm:items-center justify-between gap-3 group shadow-xs"
                     >
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-xl bg-sky-500/10 border border-sky-500/30 text-sky-600 dark:text-[#76d8fb] flex items-center justify-center font-mono text-xs font-semibold">
+                      <div className="flex items-start sm:items-center gap-3 sm:gap-4 min-w-0 flex-1">
+                        <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-sky-500/10 border border-sky-500/30 text-sky-600 dark:text-[#76d8fb] flex items-center justify-center font-mono text-xs font-semibold flex-shrink-0">
                           <Clock size={16} />
                         </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold text-text-primary text-sm">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-semibold text-text-primary text-xs sm:text-sm break-words">
                               {entry.subject}
                             </span>
                             {entry.subjectCode && (
-                              <span className="px-1.5 py-0.5 rounded bg-surface-subtle border border-border text-[10px] font-mono text-text-muted">
+                              <span className="px-1.5 py-0.5 rounded bg-surface-subtle border border-border text-[10px] font-mono text-text-muted flex-shrink-0">
                                 {entry.subjectCode}
                               </span>
                             )}
@@ -750,31 +765,33 @@ export default function TimetableModal({
                             </span>
                             {entry.room && (
                               <span className="flex items-center gap-1 text-text-secondary">
-                                <MapPin size={11} className="text-accent" />
-                                {entry.room}
+                                <MapPin size={11} className="text-accent flex-shrink-0" />
+                                <span>{entry.room}</span>
                               </span>
                             )}
                             {entry.instructor && (
                               <span className="flex items-center gap-1 text-purple-700 dark:text-[#a5b4fc]">
-                                <User size={11} className="text-purple-500" />
-                                {entry.instructor}
+                                <User size={11} className="text-purple-500 flex-shrink-0" />
+                                <span>{entry.instructor}</span>
                               </span>
                             )}
                           </div>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2 opacity-80 group-hover:opacity-100 transition-opacity">
+                      <div className="flex items-center gap-1.5 flex-shrink-0 pt-0.5 sm:pt-0">
                         <button
+                          type="button"
                           onClick={() => handleStartEdit(entry)}
-                          className="p-1.5 rounded-lg border border-border bg-surface text-text-muted hover:text-text-primary hover:bg-surface-subtle cursor-pointer shadow-xs"
+                          className="p-1.5 rounded-lg border border-border bg-surface text-text-muted hover:text-text-primary hover:bg-surface-subtle cursor-pointer shadow-xs transition-colors"
                           title="Edit"
                         >
                           <Edit2 size={13} />
                         </button>
                         <button
+                          type="button"
                           onClick={() => handleDelete(entry.id)}
-                          className="p-1.5 rounded-lg border border-rose-500/20 bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-500/20 cursor-pointer shadow-xs"
+                          className="p-1.5 rounded-lg border border-rose-500/20 bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-500/20 cursor-pointer shadow-xs transition-colors"
                           title="Delete"
                         >
                           <Trash2 size={13} />
@@ -799,14 +816,14 @@ export default function TimetableModal({
                 return (
                   <div
                     key={d}
-                    className={`rounded-2xl p-4 border transition-all flex flex-col justify-between ${
+                    className={`rounded-2xl p-3.5 sm:p-4 border transition-all flex flex-col justify-between ${
                       isToday
                         ? "border-[#76d8fb]/40 bg-sky-500/5 dark:bg-[#131f31]/70 shadow-sm"
                         : "border-border bg-surface hover:bg-surface-elevated"
                     }`}
                   >
                     <div>
-                      <div className="flex items-center justify-between pb-2.5 mb-2.5 border-b border-border">
+                      <div className="flex items-center justify-between pb-2 sm:pb-2.5 mb-2.5 border-b border-border">
                         <div className="flex items-center gap-2">
                           <span className={`text-xs font-mono font-semibold uppercase tracking-wider ${isToday ? "text-[#0284c7] dark:text-[#76d8fb]" : "text-text-secondary"}`}>
                             {d}
@@ -823,8 +840,18 @@ export default function TimetableModal({
                       </div>
 
                       {dayEntries.length === 0 ? (
-                        <div className="py-6 text-center text-xs text-text-muted font-mono">
-                          No classes
+                        <div className="py-3 px-2 rounded-xl bg-surface-subtle/50 border border-dashed border-border/80 flex items-center justify-between text-xs text-text-muted font-mono">
+                          <span>No classes scheduled</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDay(d);
+                              setIsAdding(true);
+                            }}
+                            className="text-xs text-sky-600 dark:text-[#76d8fb] hover:underline font-mono inline-flex items-center gap-1 cursor-pointer"
+                          >
+                            <Plus size={11} /> Add
+                          </button>
                         </div>
                       ) : (
                         <div className="space-y-2">
@@ -833,21 +860,32 @@ export default function TimetableModal({
                               key={e.id}
                               className="p-2.5 rounded-xl bg-surface-subtle border border-border hover:border-accent/40 transition-all group/item shadow-2xs"
                             >
-                              <div className="flex items-start justify-between gap-1">
-                                <span className="font-medium text-xs text-text-primary truncate">
-                                  {e.subject}
-                                </span>
-                                <div className="flex items-center gap-1 opacity-0 group-hover/item:opacity-100 transition-opacity">
+                              <div className="flex items-start justify-between gap-1.5">
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="font-medium text-xs text-text-primary break-words">
+                                      {e.subject}
+                                    </span>
+                                    {e.subjectCode && (
+                                      <span className="px-1 py-0.2 rounded bg-surface border border-border text-[9px] font-mono text-text-muted flex-shrink-0">
+                                        {e.subjectCode}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-1 flex-shrink-0 opacity-100 sm:opacity-0 sm:group-hover/item:opacity-100 transition-opacity">
                                   <button
+                                    type="button"
                                     onClick={() => handleStartEdit(e)}
-                                    className="p-1 hover:text-accent text-text-muted cursor-pointer"
+                                    className="p-1 hover:text-accent text-text-muted hover:bg-surface rounded cursor-pointer"
                                     title="Edit"
                                   >
                                     <Edit2 size={11} />
                                   </button>
                                   <button
+                                    type="button"
                                     onClick={() => handleDelete(e.id)}
-                                    className="p-1 hover:text-rose-500 text-text-muted cursor-pointer"
+                                    className="p-1 hover:text-rose-500 text-text-muted hover:bg-rose-500/10 rounded cursor-pointer"
                                     title="Delete"
                                   >
                                     <Trash2 size={11} />
@@ -856,9 +894,9 @@ export default function TimetableModal({
                               </div>
                               <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] font-mono text-text-secondary mt-1">
                                 <span className="text-sky-700 dark:text-[#bae6fd]">
-                                  {e.startTime} - {e.endTime}
+                                  {formatTime12Hour(e.startTime)} – {formatTime12Hour(e.endTime)}
                                 </span>
-                                {e.room && <span>• {e.room}</span>}
+                                {e.room && <span className="truncate">• {e.room}</span>}
                                 {e.instructor && (
                                   <span className="text-purple-700 dark:text-[#a5b4fc] truncate">
                                     • {e.instructor}
@@ -871,16 +909,19 @@ export default function TimetableModal({
                       )}
                     </div>
 
-                    <button
-                      onClick={() => {
-                        setDay(d);
-                        setIsAdding(true);
-                      }}
-                      className="mt-3 w-full py-1 rounded-lg border border-dashed border-border hover:border-accent/40 text-[11px] font-mono text-text-muted hover:text-accent flex items-center justify-center gap-1 transition-colors cursor-pointer"
-                    >
-                      <Plus size={11} />
-                      <span>Add</span>
-                    </button>
+                    {dayEntries.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDay(d);
+                          setIsAdding(true);
+                        }}
+                        className="mt-2.5 w-full py-1.5 rounded-lg border border-dashed border-border hover:border-accent/40 text-[11px] font-mono text-text-muted hover:text-accent flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                      >
+                        <Plus size={11} />
+                        <span>Add Class</span>
+                      </button>
+                    )}
                   </div>
                 );
               })}

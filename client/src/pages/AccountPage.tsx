@@ -49,6 +49,12 @@ import {
   disconnectGoogleCalendar,
   requestGoogleCalendarAccess,
 } from "@/lib/googleCalendar";
+import {
+  getNotificationPermission,
+  sendTestNotification,
+  requestNotificationPermission,
+  type NotificationPermissionStatus,
+} from "@/lib/notifications";
 import ThemeToggle from "@/components/ThemeToggle";
 
 export default function AccountPage() {
@@ -73,6 +79,35 @@ export default function AccountPage() {
   const [dailyPlanReminder, setDailyPlanReminder] = useState(true);
   const [deadlineAlerts, setDeadlineAlerts] = useState(true);
   const [examAlerts, setExamAlerts] = useState(true);
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermissionStatus>(() =>
+    getNotificationPermission()
+  );
+  const [isTestingNotification, setIsTestingNotification] = useState(false);
+  const [testNotificationResult, setTestNotificationResult] = useState<{
+    success: boolean;
+    message: string;
+  } | null>(null);
+
+  useEffect(() => {
+    setNotificationPermission(getNotificationPermission());
+  }, []);
+
+  const handleTestNotification = async () => {
+    setIsTestingNotification(true);
+    setTestNotificationResult(null);
+    try {
+      const res = await sendTestNotification();
+      setTestNotificationResult(res);
+      setNotificationPermission(getNotificationPermission());
+    } catch (err: any) {
+      setTestNotificationResult({
+        success: false,
+        message: err?.message || "Failed to trigger test notification.",
+      });
+    } finally {
+      setIsTestingNotification(false);
+    }
+  };
 
   // Status feedback
   const [isSaving, setIsSaving] = useState(false);
@@ -836,17 +871,43 @@ export default function AccountPage() {
           {/* Academic Notifications */}
           <div className="rounded-2xl border border-slate-200/80 dark:border-border bg-white dark:bg-surface/90 backdrop-blur-md p-6 shadow-xs flex flex-col justify-between">
             <div>
-              <div className="flex items-center gap-2 mb-1">
-                <Bell size={16} className="text-purple-500 dark:text-[#a895ff]" />
-                <h3 className="text-base font-semibold font-['Space_Grotesk'] text-slate-900 dark:text-white">
-                  Notification Alerts
-                </h3>
+              <div className="flex items-center justify-between gap-2 mb-1 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <Bell size={16} className="text-purple-500 dark:text-[#a895ff]" />
+                  <h3 className="text-base font-semibold font-['Space_Grotesk'] text-slate-900 dark:text-white">
+                    Notification Alerts
+                  </h3>
+                </div>
+                {/* Device Permission Badge */}
+                {notificationPermission === "granted" ? (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
+                    <CheckCircle2 size={10} /> Permission Granted
+                  </span>
+                ) : notificationPermission === "denied" ? (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-rose-500/15 text-rose-700 dark:text-rose-400 border border-rose-500/20 flex items-center gap-1">
+                    <AlertTriangle size={10} /> Blocked in Settings
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/20">
+                    Prompt Needed
+                  </span>
+                )}
               </div>
-              <p className="text-xs text-slate-500 dark:text-text-secondary mb-5">
+              <p className="text-xs text-slate-500 dark:text-text-secondary mb-3">
                 Manage automated daily agenda briefings and urgent deadline nudges.
               </p>
 
-              <div className="space-y-3.5">
+              {/* Status Warning for Denied Permission */}
+              {notificationPermission === "denied" && (
+                <div className="mb-4 p-2.5 rounded-xl border border-rose-500/25 bg-rose-500/10 text-xs text-rose-700 dark:text-rose-300">
+                  <p className="font-medium text-[11px]">System notifications are blocked on this device.</p>
+                  <p className="text-[10px] mt-0.5 text-rose-600 dark:text-rose-400">
+                    To receive alerts, open your Android Settings &rarr; Apps &rarr; Chrome or DeadlineIQ &rarr; Notifications and turn them on.
+                  </p>
+                </div>
+              )}
+
+              <div className="space-y-3">
                 {/* Daily plan reminder */}
                 <label className="flex items-center justify-between p-2.5 rounded-xl border border-slate-200 dark:border-border bg-slate-50/50 dark:bg-surface-subtle cursor-pointer select-none">
                   <div>
@@ -889,14 +950,44 @@ export default function AccountPage() {
                   />
                 </label>
               </div>
+
+              {/* Test result feedback banner */}
+              {testNotificationResult && (
+                <div
+                  className={`mt-3 p-2.5 rounded-xl text-xs flex items-center justify-between gap-2 ${
+                    testNotificationResult.success
+                      ? "bg-emerald-500/10 border border-emerald-500/30 text-emerald-800 dark:text-emerald-300"
+                      : "bg-rose-500/10 border border-rose-500/30 text-rose-800 dark:text-rose-300"
+                  }`}
+                >
+                  <span className="text-[11px] font-mono leading-tight">{testNotificationResult.message}</span>
+                  <button
+                    type="button"
+                    onClick={() => setTestNotificationResult(null)}
+                    className="text-text-muted hover:text-text-primary p-0.5 cursor-pointer flex-shrink-0"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              )}
             </div>
 
-            <div className="pt-4 mt-4 border-t border-slate-200/80 dark:border-border flex justify-end">
+            <div className="pt-4 mt-4 border-t border-slate-200/80 dark:border-border flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+              <button
+                type="button"
+                onClick={handleTestNotification}
+                disabled={isTestingNotification}
+                className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-border bg-slate-50/50 dark:bg-surface-subtle hover:bg-slate-100 dark:hover:bg-surface text-xs font-medium text-slate-700 dark:text-slate-300 flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <Bell size={13} className="text-blue-500" />
+                <span>{isTestingNotification ? "Dispatching..." : "Send Test Reminder"}</span>
+              </button>
+
               <button
                 type="button"
                 onClick={() => handleSaveProfile()}
                 disabled={isSaving}
-                className="text-xs font-medium text-blue-600 dark:text-[#76d8fb] hover:underline cursor-pointer"
+                className="text-xs font-medium text-blue-600 dark:text-[#76d8fb] hover:underline cursor-pointer text-center sm:text-right"
               >
                 {isSaving ? "Saving preferences..." : "Save Notification Preferences"}
               </button>
@@ -921,25 +1012,25 @@ export default function AccountPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             
             {/* Google Calendar Card */}
-            <div className="p-4 rounded-xl border border-slate-200 dark:border-border bg-slate-50/50 dark:bg-[#0c101a] flex items-start justify-between gap-4">
-              <div className="flex items-start gap-3.5">
+            <div className="p-3.5 sm:p-4 rounded-xl border border-slate-200 dark:border-border bg-slate-50/50 dark:bg-[#0c101a] flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3.5 sm:gap-4 transition-all">
+              <div className="flex items-start gap-3 min-w-0 flex-1">
                 <div className="w-10 h-10 rounded-xl bg-white dark:bg-[#151c2d] border border-slate-200 dark:border-white/10 flex items-center justify-center flex-shrink-0 shadow-xs">
                   <CalendarDays size={20} className="text-blue-500" />
                 </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h4 className="text-sm font-semibold text-slate-900 dark:text-white">Google Calendar</h4>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h4 className="text-sm font-semibold text-slate-900 dark:text-white truncate">Google Calendar</h4>
                     {googleMeta.isConnected ? (
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 whitespace-nowrap">
                         Connected
                       </span>
                     ) : (
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-slate-200 dark:bg-white/10 text-slate-600 dark:text-slate-400">
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-slate-200 dark:bg-white/10 text-slate-600 dark:text-slate-400 whitespace-nowrap">
                         Disconnected
                       </span>
                     )}
                   </div>
-                  <p className="text-[11px] text-slate-500 dark:text-text-muted mt-1 leading-relaxed">
+                  <p className="text-[11px] text-slate-500 dark:text-text-muted mt-1 leading-relaxed break-words">
                     {googleMeta.isConnected
                       ? `Syncing with Google Calendar (${googleMeta.connectedEmail || "Primary Account"}).`
                       : "Sync your deadlines and daily study sessions with Google Calendar."}
@@ -947,33 +1038,35 @@ export default function AccountPage() {
                 </div>
               </div>
 
-              <button
-                type="button"
-                onClick={handleToggleGoogleCalendar}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer flex-shrink-0 ${
-                  googleMeta.isConnected
-                    ? "border border-rose-300 dark:border-rose-500/30 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10"
-                    : "bg-blue-600 hover:bg-blue-500 text-white shadow-xs"
-                }`}
-              >
-                {googleMeta.isConnected ? "Disconnect" : "Connect"}
-              </button>
+              <div className="flex sm:block justify-end pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-200/60 dark:border-white/5">
+                <button
+                  type="button"
+                  onClick={handleToggleGoogleCalendar}
+                  className={`w-full sm:w-auto text-center px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer flex-shrink-0 ${
+                    googleMeta.isConnected
+                      ? "border border-rose-300 dark:border-rose-500/30 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10"
+                      : "bg-blue-600 hover:bg-blue-500 text-white shadow-xs"
+                  }`}
+                >
+                  {googleMeta.isConnected ? "Disconnect" : "Connect"}
+                </button>
+              </div>
             </div>
 
             {/* Firebase Cloud Sync Card */}
-            <div className="p-4 rounded-xl border border-slate-200 dark:border-border bg-slate-50/50 dark:bg-[#0c101a] flex items-start justify-between gap-4">
-              <div className="flex items-start gap-3.5">
+            <div className="p-3.5 sm:p-4 rounded-xl border border-slate-200 dark:border-border bg-slate-50/50 dark:bg-[#0c101a] flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3.5 sm:gap-4 transition-all">
+              <div className="flex items-start gap-3 min-w-0 flex-1">
                 <div className="w-10 h-10 rounded-xl bg-white dark:bg-[#151c2d] border border-slate-200 dark:border-white/10 flex items-center justify-center flex-shrink-0 shadow-xs">
                   <ShieldCheck size={20} className="text-emerald-500" />
                 </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h4 className="text-sm font-semibold text-slate-900 dark:text-white">Firebase Cloud Storage</h4>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h4 className="text-sm font-semibold text-slate-900 dark:text-white truncate">Firebase Cloud Storage</h4>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 whitespace-nowrap">
                       Active
                     </span>
                   </div>
-                  <p className="text-[11px] text-slate-500 dark:text-text-muted mt-1 leading-relaxed">
+                  <p className="text-[11px] text-slate-500 dark:text-text-muted mt-1 leading-relaxed break-words">
                     User data is securely isolated per authenticated UID with realtime Firestore synchronization.
                   </p>
                 </div>

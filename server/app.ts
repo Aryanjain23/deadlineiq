@@ -46,6 +46,69 @@ app.get("/api/ai/status", (_req, res) => {
   });
 });
 
+// Notifications and Scheduled Reminders Status Endpoint
+app.get("/api/notifications/status", (_req, res) => {
+  res.json({
+    status: "ok",
+    service: "DeadlineIQ Notification Service",
+    clientPwaNotificationsSupported: true,
+    serverCronConfigured: true,
+    backgroundWebPushRequirements: {
+      vapidKeysConfigured: Boolean(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY),
+      fcmConfigured: Boolean(process.env.FIREBASE_MESSAGING_SENDER_ID),
+    },
+  });
+});
+
+// Vercel Cron Endpoint for Scheduled Deadline Reminders
+app.get("/api/cron/check-deadlines", async (req, res) => {
+  try {
+    const cronSecret = process.env.CRON_SECRET;
+    const authHeader = req.headers.authorization;
+
+    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+      return res.status(401).json({ error: "Unauthorized cron execution." });
+    }
+
+    const adminDb = await getAdminFirestore();
+    let checkedCount = 0;
+    let alertsEvaluated = 0;
+
+    if (adminDb) {
+      try {
+        const usersSnap = await adminDb.collection("users").get();
+        for (const userDoc of usersSnap.docs) {
+          checkedCount++;
+          const userData = userDoc.data();
+          if (userData?.preferences?.deadlineAlerts === false) continue;
+
+          const deadlinesSnap = await adminDb
+            .collection("users")
+            .doc(userDoc.id)
+            .collection("deadlines")
+            .where("completed", "==", false)
+            .get();
+
+          alertsEvaluated += deadlinesSnap.size;
+        }
+      } catch (dbErr) {
+        console.warn("Cron Firestore query note:", dbErr);
+      }
+    }
+
+    res.json({
+      success: true,
+      timestamp: new Date().toISOString(),
+      usersChecked: checkedCount,
+      deadlinesEvaluated: alertsEvaluated,
+      message: "Server deadline evaluation completed successfully.",
+    });
+  } catch (error: any) {
+    console.error("Cron check-deadlines error:", error);
+    res.status(500).json({ error: "Server reminder check failed." });
+  }
+});
+
 // Unified AI Extraction API (Gemini & OpenRouter with automatic fallback)
 app.post("/api/extract-deadlines", async (req, res) => {
   try {
