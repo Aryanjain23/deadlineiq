@@ -24,6 +24,7 @@ import {
   Zap,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
+import { PWAInstallButton } from "@/components/PWAInstallButton";
 
 type LogoProps = { compact?: boolean };
 
@@ -138,6 +139,7 @@ function Header() {
           <MagneticLink className="nav-mobile-login" href="/login" onClick={closeMenu}>Log in <ArrowUpRight size={14} /></MagneticLink>
         </nav>
         <div className="nav-actions">
+          <PWAInstallButton />
           <MagneticLink className="nav-login" href="/login">Log in</MagneticLink>
           <MagneticLink className="nav-cta" href="/login" arrow>Get started</MagneticLink>
         </div>

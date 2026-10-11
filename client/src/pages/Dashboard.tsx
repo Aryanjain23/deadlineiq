@@ -90,6 +90,7 @@ import AcademicRadar from "@/components/AcademicRadar";
 import FocusModal from "@/components/FocusModal";
 import PlanMyDayModal from "@/components/PlanMyDayModal";
 import ThemeToggle from "@/components/ThemeToggle";
+import { PWAInstallButton } from "@/components/PWAInstallButton";
 import { formatDateToYYYYMMDD, formatCurrentTimeHHMM, timeToMinutes, minutesToTime, evaluateActivePlanState } from '@/lib/smartPlannerEngine';
 import type { SavedDailyPlan, ScheduleBlock } from '@/lib/firebase/types';
 
@@ -677,6 +678,9 @@ export default function Dashboard() {
               )}
             </button>
 
+            {/* PWA Install Button */}
+            <PWAInstallButton className="h-9" />
+
             {/* Theme Toggle */}
             <ThemeToggle className="h-9" />
 
@@ -801,6 +805,11 @@ export default function Dashboard() {
                     </div>
                     <ChevronRight size={14} />
                   </Link>
+
+                  {/* Mobile App Install Button */}
+                  <div className="py-0.5">
+                    <PWAInstallButton className="w-full justify-center py-2" />
+                  </div>
 
                   {/* Theme Switching Row */}
                   <div className="flex items-center justify-between py-1">
