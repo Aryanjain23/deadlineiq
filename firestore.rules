@@ -10,66 +10,19 @@ service cloud.firestore {
       return request.auth != null && request.auth.uid == uid;
     }
 
-    // Registered users directory for email existence check
+    // Public registered users directory for login verification
     match /registeredUsers/{emailKey} {
       allow read: if true;
       allow write: if isSignedIn();
     }
 
-    // User profile document and all nested collections
+    // User profile document and all nested subcollections
     match /users/{uid} {
       allow read, write: if isOwner(uid);
 
-      // Daily plans
-      match /dailyPlans/{planId} {
-        allow read, write: if isOwner(uid);
-      }
-
-      // Academic deadlines
-      match /deadlines/{deadlineId} {
-        allow read, write: if isOwner(uid);
-      }
-
-      // Timetable classes
-      match /timetable/{timetableId} {
-        allow read, write: if isOwner(uid);
-      }
-
-      // Exams
-      match /exams/{examId} {
-        allow read, write: if isOwner(uid);
-      }
-
-      // Events
-      match /events/{eventId} {
-        allow read, write: if isOwner(uid);
-      }
-
-      // Settings
-      match /settings/{settingId} {
-        allow read, write: if isOwner(uid);
-      }
-
-      // Sources
-      match /sources/{sourceId} {
-        allow read, write: if isOwner(uid);
-      }
-
-      // Notification tokens
-      match /notificationTokens/{tokenId} {
-        allow read, write: if isOwner(uid);
-      }
-
-      // Recursive fallback for any nested document under user
       match /{allSubcollections=**} {
         allow read, write: if isOwner(uid);
       }
     }
-
-    // Top-level direct path fallback for any subcollection under users
-    match /users/{uid}/{collectionId}/{docId} {
-      allow read, write: if isOwner(uid);
-    }
   }
 }
-

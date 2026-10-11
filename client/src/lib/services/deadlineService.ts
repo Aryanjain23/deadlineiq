@@ -1,5 +1,6 @@
 import {
   getDocs,
+  getDoc,
   doc,
   setDoc,
   deleteDoc,
@@ -8,6 +9,7 @@ import {
 import {
   getDeadlinesCollectionRef,
   getDeadlineDocRef,
+  getUserDocRef,
   getFirebaseDb,
   getFirebaseAuth,
   handleFirestoreError,
@@ -21,10 +23,31 @@ import {
 } from "@/lib/deadlines";
 import type { FirestoreDeadlineDocument } from "@/lib/firebase/types";
 
-function isFirebaseAuthForUid(uid: string): boolean {
-  if (!uid || uid.startsWith("demo-")) return false;
-  const auth = getFirebaseAuth();
-  return Boolean(auth?.currentUser && auth.currentUser.uid === uid);
+function isRealUserUid(uid?: string | null): boolean {
+  if (!uid || typeof uid !== "string") return false;
+  if (uid === "guest" || uid === "default" || uid.startsWith("demo-")) return false;
+  return true;
+}
+
+async function executeWithAuthRetry<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err: any) {
+    const isPermission =
+      err?.code === "permission-denied" ||
+      String(err?.message || "").includes("Missing or insufficient permissions") ||
+      String(err?.message || "").includes("permission-denied");
+    if (isPermission) {
+      const auth = getFirebaseAuth();
+      if (auth?.currentUser) {
+        try {
+          await auth.currentUser.getIdToken(true);
+          return await fn();
+        } catch {}
+      }
+    }
+    throw err;
+  }
 }
 
 /**
@@ -58,43 +81,63 @@ function normalizeFirestoreDeadline(data: FirestoreDeadlineDocument): Deadline {
  */
 export async function getDeadlines(uid: string, usnFallback = "default"): Promise<Deadline[]> {
   const cacheKey = uid || usnFallback;
+  const path = `users/${uid}/deadlines`;
 
-  if (!isFirebaseAuthForUid(uid)) {
+  if (!isRealUserUid(uid)) {
     return loadDeadlines(cacheKey);
   }
 
   const db = getFirebaseDb();
+  if (!db) {
+    return loadDeadlines(cacheKey);
+  }
+
+  // 1. Check subcollection first
   const colRef = uid ? getDeadlinesCollectionRef(uid) : null;
-
-  if (!db || !colRef) {
-    return loadDeadlines(cacheKey);
-  }
-
-  try {
-    const snap = await getDocs(colRef);
-    if (snap.empty) {
-      saveDeadlines(cacheKey, []);
-      return [];
-    }
-
-    const items: Deadline[] = [];
-    for (const d of snap.docs) {
-      const data = d.data();
-      // If legacy test/demo documents were seeded during previous dev, safely purge them
-      if (data.id?.startsWith("demo-") || d.id?.startsWith("demo-")) {
-        deleteDoc(d.ref).catch((err) => console.warn("Purged legacy test deadline document:", err));
-        continue;
+  if (colRef) {
+    try {
+      const snap = await executeWithAuthRetry(() => getDocs(colRef));
+      if (!snap.empty) {
+        const items: Deadline[] = [];
+        for (const d of snap.docs) {
+          const data = d.data();
+          if (data.id?.startsWith("demo-")) {
+            deleteDoc(d.ref).catch(() => {});
+            continue;
+          }
+          items.push(normalizeFirestoreDeadline(data));
+        }
+        console.log(`[FIRESTORE READ]\nfeature: deadlines\nuid: ${uid}\npath: ${path}\ndocumentsFound: ${items.length}`);
+        saveDeadlines(cacheKey, items);
+        return items;
       }
-      items.push(normalizeFirestoreDeadline(data));
+    } catch (error) {
+      console.warn(`[FIRESTORE READ FAILED]\nfeature: deadlines subcollection:`, error);
     }
-
-    // Cache user's real deadlines to localStorage
-    saveDeadlines(cacheKey, items);
-    return items;
-  } catch (error) {
-    console.warn("Firestore getDeadlines failed, falling back to local cache:", error);
-    return loadDeadlines(cacheKey);
   }
+
+  // 2. Fall back to user document root
+  const userDocRef = getUserDocRef(uid);
+  if (userDocRef) {
+    try {
+      const uSnap = await executeWithAuthRetry(() => getDoc(userDocRef));
+      if (uSnap.exists()) {
+        const uData = uSnap.data();
+        if (Array.isArray(uData?.deadlines) && uData.deadlines.length > 0) {
+          const items: Deadline[] = uData.deadlines
+            .filter((d: any) => d && !d.id?.startsWith("demo-"))
+            .map((d: any) => normalizeFirestoreDeadline(d));
+          console.log(`[FIRESTORE READ]\nfeature: deadlines\nuid: ${uid}\npath: users/${uid}\ndocumentsFound: ${items.length}`);
+          saveDeadlines(cacheKey, items);
+          return items;
+        }
+      }
+    } catch (uErr) {
+      console.warn(`[FIRESTORE READ FAILED]\nfeature: deadlines user document:`, uErr);
+    }
+  }
+
+  return loadDeadlines(cacheKey);
 }
 
 /**
@@ -107,6 +150,7 @@ export async function createDeadline(
 ): Promise<Deadline> {
   const userKey = uid || usnFallback;
   const now = new Date().toISOString();
+  const path = `users/${uid}/deadlines/${deadline.id}`;
   const normalized: FirestoreDeadlineDocument = {
     id: deadline.id,
     taskName: deadline.taskName,
@@ -126,20 +170,47 @@ export async function createDeadline(
     timetableDerived: deadline.timetableDerived,
   };
 
-  // Always update local cache immediately for instant UI response
   const local = loadDeadlines(userKey);
   const updatedLocal = [deadline, ...local.filter((d) => d.id !== deadline.id)];
   saveDeadlines(userKey, updatedLocal);
 
-  // If Cloud Firestore is connected, persist to cloud
   const db = getFirebaseDb();
-  if (db && isFirebaseAuthForUid(uid)) {
+  if (db && isRealUserUid(uid)) {
+    let userDocSaved = false;
+    const userDocRef = getUserDocRef(uid);
+    if (userDocRef) {
+      try {
+        await executeWithAuthRetry(() =>
+          setDoc(
+            userDocRef,
+            sanitizeForFirestore({
+              deadlines: updatedLocal,
+              updatedAt: now,
+            }),
+            { merge: true }
+          )
+        );
+        userDocSaved = true;
+        console.log(`[FIRESTORE WRITE]\nfeature: deadlines\nuid: ${uid}\npath: users/${uid}\ndocumentId: ${deadline.id}\nsuccess: true`);
+      } catch (uErr) {
+        console.warn(`[FIRESTORE WRITE]\nfeature: deadlines user doc warning:`, uErr);
+      }
+    }
+
     const docRef = getDeadlineDocRef(uid, deadline.id);
     if (docRef) {
       try {
-        await setDoc(docRef, sanitizeForFirestore(normalized), { merge: true });
+        await executeWithAuthRetry(() =>
+          setDoc(docRef, sanitizeForFirestore(normalized), { merge: true })
+        );
+        console.log(`[FIRESTORE WRITE]\nfeature: deadlines\nuid: ${uid}\npath: ${path}\ndocumentId: ${deadline.id}\nsuccess: true`);
       } catch (error) {
-        handleFirestoreError(error, OperationType.WRITE, `users/${uid}/deadlines/${deadline.id}`, getFirebaseAuth()?.currentUser);
+        if (userDocSaved) {
+          console.log(`[FIRESTORE WRITE]\nfeature: deadlines\nuid: ${uid}\npath: ${path}\ndocumentId: ${deadline.id}\nsuccess: true (persisted to user document)`);
+        } else {
+          console.error(`[FIRESTORE WRITE]\nfeature: deadlines\nuid: ${uid}\npath: ${path}\ndocumentId: ${deadline.id}\nsuccess: false`, error);
+          handleFirestoreError(error, OperationType.WRITE, path, getFirebaseAuth()?.currentUser);
+        }
       }
     }
   }
@@ -157,25 +228,52 @@ export async function updateDeadline(
   usnFallback = "default"
 ): Promise<void> {
   const userKey = uid || usnFallback;
+  const path = `users/${uid}/deadlines/${id}`;
+  const now = new Date().toISOString();
+
   const local = loadDeadlines(userKey);
   const updatedLocal = local.map((d) => (d.id === id ? { ...d, ...updates } : d));
   saveDeadlines(userKey, updatedLocal);
 
   const db = getFirebaseDb();
-  if (db && isFirebaseAuthForUid(uid)) {
+  if (db && isRealUserUid(uid)) {
+    let userDocSaved = false;
+    const userDocRef = getUserDocRef(uid);
+    if (userDocRef) {
+      try {
+        await executeWithAuthRetry(() =>
+          setDoc(
+            userDocRef,
+            sanitizeForFirestore({
+              deadlines: updatedLocal,
+              updatedAt: now,
+            }),
+            { merge: true }
+          )
+        );
+        userDocSaved = true;
+      } catch {}
+    }
+
     const docRef = getDeadlineDocRef(uid, id);
     if (docRef) {
       try {
-        await setDoc(
-          docRef,
-          sanitizeForFirestore({
-            ...updates,
-            updatedAt: new Date().toISOString(),
-          }),
-          { merge: true }
+        await executeWithAuthRetry(() =>
+          setDoc(
+            docRef,
+            sanitizeForFirestore({
+              ...updates,
+              updatedAt: now,
+            }),
+            { merge: true }
+          )
         );
+        console.log(`[FIRESTORE WRITE]\nfeature: deadlines\nuid: ${uid}\npath: ${path}\ndocumentId: ${id}\nsuccess: true`);
       } catch (error) {
-        handleFirestoreError(error, OperationType.UPDATE, `users/${uid}/deadlines/${id}`, getFirebaseAuth()?.currentUser);
+        if (!userDocSaved) {
+          console.error(`[FIRESTORE WRITE]\nfeature: deadlines\nuid: ${uid}\npath: ${path}\ndocumentId: ${id}\nsuccess: false`, error);
+          handleFirestoreError(error, OperationType.UPDATE, path, getFirebaseAuth()?.currentUser);
+        }
       }
     }
   }
@@ -190,18 +288,43 @@ export async function deleteDeadline(
   usnFallback = "default"
 ): Promise<void> {
   const userKey = uid || usnFallback;
+  const path = `users/${uid}/deadlines/${id}`;
+  const now = new Date().toISOString();
+
   const local = loadDeadlines(userKey);
   const updatedLocal = local.filter((d) => d.id !== id);
   saveDeadlines(userKey, updatedLocal);
 
   const db = getFirebaseDb();
-  if (db && isFirebaseAuthForUid(uid)) {
+  if (db && isRealUserUid(uid)) {
+    let userDocSaved = false;
+    const userDocRef = getUserDocRef(uid);
+    if (userDocRef) {
+      try {
+        await executeWithAuthRetry(() =>
+          setDoc(
+            userDocRef,
+            sanitizeForFirestore({
+              deadlines: updatedLocal,
+              updatedAt: now,
+            }),
+            { merge: true }
+          )
+        );
+        userDocSaved = true;
+      } catch {}
+    }
+
     const docRef = getDeadlineDocRef(uid, id);
     if (docRef) {
       try {
-        await deleteDoc(docRef);
+        await executeWithAuthRetry(() => deleteDoc(docRef));
+        console.log(`[FIRESTORE WRITE]\nfeature: deadlines\nuid: ${uid}\npath: ${path}\ndocumentId: ${id}\nsuccess: true (deleted)`);
       } catch (error) {
-        handleFirestoreError(error, OperationType.DELETE, `users/${uid}/deadlines/${id}`, getFirebaseAuth()?.currentUser);
+        if (!userDocSaved) {
+          console.error(`[FIRESTORE WRITE]\nfeature: deadlines\nuid: ${uid}\npath: ${path}\ndocumentId: ${id}\nsuccess: false`, error);
+          handleFirestoreError(error, OperationType.DELETE, path, getFirebaseAuth()?.currentUser);
+        }
       }
     }
   }
@@ -216,40 +339,72 @@ export function subscribeToDeadlines(
   usnFallback = "default"
 ): () => void {
   const cacheKey = uid || usnFallback;
+  const path = `users/${uid}/deadlines`;
 
-  if (!isFirebaseAuthForUid(uid)) {
-    onUpdate(loadDeadlines(cacheKey));
+  onUpdate(loadDeadlines(cacheKey));
+
+  if (!isRealUserUid(uid)) {
     return () => {};
   }
 
   const db = getFirebaseDb();
   const colRef = uid ? getDeadlinesCollectionRef(uid) : null;
+  const userDocRef = uid ? getUserDocRef(uid) : null;
 
   if (!db || !colRef) {
-    onUpdate(loadDeadlines(cacheKey));
     return () => {};
   }
+
+  let userDocUnsub: (() => void) | null = null;
 
   const unsubscribe = onSnapshot(
     colRef,
     (snapshot) => {
-      const items: Deadline[] = [];
-      for (const d of snapshot.docs) {
-        const data = d.data();
-        if (data.id?.startsWith("demo-") || d.id?.startsWith("demo-")) {
-          deleteDoc(d.ref).catch(() => {});
-          continue;
+      const count = snapshot.empty ? 0 : snapshot.docs.length;
+      console.log(`[FIRESTORE READ]\nfeature: deadlines\nuid: ${uid}\npath: ${path}\ndocumentsFound: ${count}`);
+      if (!snapshot.empty) {
+        const items: Deadline[] = [];
+        for (const d of snapshot.docs) {
+          const data = d.data();
+          if (data.id?.startsWith("demo-")) {
+            deleteDoc(d.ref).catch(() => {});
+            continue;
+          }
+          items.push(normalizeFirestoreDeadline(data));
         }
-        items.push(normalizeFirestoreDeadline(data));
+        saveDeadlines(cacheKey, items);
+        onUpdate(items);
       }
-      saveDeadlines(cacheKey, items);
-      onUpdate(items);
     },
     (error) => {
-      console.warn("Deadlines onSnapshot error, falling back to local storage:", error);
-      onUpdate(loadDeadlines(cacheKey));
+      console.warn(`[FIRESTORE READ FAILED]\nfeature: deadlines subcollection, switching to user doc listener:`, error);
+      if (userDocRef && !userDocUnsub) {
+        userDocUnsub = onSnapshot(
+          userDocRef,
+          (uSnap) => {
+            if (uSnap.exists()) {
+              const uData = uSnap.data();
+              if (Array.isArray(uData?.deadlines)) {
+                const items = uData.deadlines
+                  .filter((d: any) => d && !d.id?.startsWith("demo-"))
+                  .map((d: any) => normalizeFirestoreDeadline(d));
+                saveDeadlines(cacheKey, items);
+                onUpdate(items);
+              }
+            }
+          },
+          () => {
+            onUpdate(loadDeadlines(cacheKey));
+          }
+        );
+      } else {
+        onUpdate(loadDeadlines(cacheKey));
+      }
     }
   );
 
-  return unsubscribe;
+  return () => {
+    unsubscribe();
+    if (userDocUnsub) userDocUnsub();
+  };
 }

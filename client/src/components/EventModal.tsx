@@ -165,7 +165,7 @@ export default function EventModal({
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. Robotics Club Meeting, Football Match"
+              placeholder="Enter event title"
               className="w-full px-3.5 py-2.5 rounded-xl border border-border bg-surface-subtle text-text-primary text-sm focus:outline-none focus:border-primary"
               required
             />
@@ -267,7 +267,7 @@ export default function EventModal({
                 type="text"
                 value={location}
                 onChange={(e) => setLocation(e.target.value)}
-                placeholder="e.g. College Ground, Seminar Hall 2, Online"
+                placeholder="Enter location (optional)"
                 className="w-full pl-9 pr-3 py-2 rounded-xl border border-border bg-surface-subtle text-text-primary text-xs focus:outline-none focus:border-primary"
               />
             </div>
@@ -282,7 +282,7 @@ export default function EventModal({
               rows={2}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Additional details, preparation notes, or reminders..."
+              placeholder="Add notes (optional)"
               className="w-full px-3 py-2 rounded-xl border border-border bg-surface-subtle text-text-primary text-xs focus:outline-none focus:border-primary resize-none"
             />
           </div>

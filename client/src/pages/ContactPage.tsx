@@ -91,7 +91,7 @@ export default function ContactPage() {
                 <label className="block text-[11px] font-mono text-slate-600 dark:text-text-secondary mb-1">Your Name</label>
                 <input
                   type="text"
-                  placeholder="Aryan"
+                  placeholder="Enter your name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   className="w-full rounded-xl border border-slate-300 dark:border-border bg-white dark:bg-black/40 px-3.5 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-primary"
@@ -103,7 +103,7 @@ export default function ContactPage() {
                 <input
                   type="email"
                   required
-                  placeholder="student@example.com"
+                  placeholder="Enter your email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full rounded-xl border border-slate-300 dark:border-border bg-white dark:bg-black/40 px-3.5 py-2 text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-primary"

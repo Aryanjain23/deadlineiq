@@ -17,8 +17,30 @@ function isFirebaseAuthForUid(uid: string): boolean {
   return Boolean(auth?.currentUser && auth.currentUser.uid === uid);
 }
 
+async function executeWithAuthRetry<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err: any) {
+    const isPermission =
+      err?.code === "permission-denied" ||
+      String(err?.message || "").includes("Missing or insufficient permissions") ||
+      String(err?.message || "").includes("permission-denied");
+    if (isPermission) {
+      const auth = getFirebaseAuth();
+      if (auth?.currentUser) {
+        try {
+          await auth.currentUser.getIdToken(true);
+          return await fn();
+        } catch {}
+      }
+    }
+    throw err;
+  }
+}
+
 export async function getUserProfile(uid: string): Promise<UserProfileDocument | null> {
   if (!uid) return null;
+  const path = `users/${uid}`;
 
   if (!isFirebaseAuthForUid(uid)) {
     try {
@@ -35,16 +57,19 @@ export async function getUserProfile(uid: string): Promise<UserProfileDocument |
     const docRef = getUserDocRef(uid);
     if (docRef) {
       try {
-        const snap = await getDoc(docRef);
+        const snap = await executeWithAuthRetry(() => getDoc(docRef));
         if (snap.exists()) {
           const data = snap.data() as UserProfileDocument;
+          console.log(`[FIRESTORE READ]\nfeature: profile\nuid: ${uid}\npath: ${path}\ndocumentsFound: 1`);
           try {
             localStorage.setItem(LOCAL_PROFILE_PREFIX + uid, JSON.stringify(data));
           } catch {}
           return data;
+        } else {
+          console.log(`[FIRESTORE READ]\nfeature: profile\nuid: ${uid}\npath: ${path}\ndocumentsFound: 0`);
         }
       } catch (error) {
-        console.warn("Firestore getUserProfile fallback:", error);
+        console.warn(`[FIRESTORE READ FAILED]\nfeature: profile\nuid: ${uid}\npath: ${path}`, error);
       }
     }
   }
@@ -67,6 +92,7 @@ export async function saveUserProfile(
   if (!uid) return;
 
   const now = new Date().toISOString();
+  const path = `users/${uid}`;
   const merged: Partial<UserProfileDocument> = {
     ...profile,
     uid,
@@ -92,10 +118,14 @@ export async function saveUserProfile(
   if (!docRef) return;
 
   try {
-    await setDoc(docRef, sanitizeForFirestore(merged), { merge: true });
+    await executeWithAuthRetry(() =>
+      setDoc(docRef, sanitizeForFirestore(merged), { merge: true })
+    );
+    console.log(`[FIRESTORE WRITE]\nfeature: profile\nuid: ${uid}\npath: ${path}\ndocumentId: ${uid}\nsuccess: true`);
   } catch (error) {
+    console.error(`[FIRESTORE WRITE]\nfeature: profile\nuid: ${uid}\npath: ${path}\ndocumentId: ${uid}\nsuccess: false`, error);
     const auth = getFirebaseAuth();
-    handleFirestoreError(error, OperationType.WRITE, `users/${uid}`, {
+    handleFirestoreError(error, OperationType.WRITE, path, {
       uid: auth?.currentUser?.uid,
       email: auth?.currentUser?.email,
     });
@@ -104,6 +134,7 @@ export async function saveUserProfile(
 
 export async function deleteUserProfileData(uid: string): Promise<void> {
   if (!uid) return;
+  const path = `users/${uid}`;
 
   try {
     localStorage.removeItem(LOCAL_PROFILE_PREFIX + uid);
@@ -120,8 +151,9 @@ export async function deleteUserProfileData(uid: string): Promise<void> {
   if (!docRef) return;
 
   try {
-    await deleteDoc(docRef);
+    await executeWithAuthRetry(() => deleteDoc(docRef));
+    console.log(`[FIRESTORE WRITE]\nfeature: profile\nuid: ${uid}\npath: ${path}\ndocumentId: ${uid}\nsuccess: true (deleted)`);
   } catch (error) {
-    console.warn("deleteUserProfileData error:", error);
+    console.error(`[FIRESTORE WRITE]\nfeature: profile\nuid: ${uid}\npath: ${path}\ndocumentId: ${uid}\nsuccess: false`, error);
   }
 }

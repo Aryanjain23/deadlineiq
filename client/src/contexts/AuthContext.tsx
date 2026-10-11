@@ -77,23 +77,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       if (firebaseUser) {
-        // Enforce application-level check: only grant access if user possesses a DeadlineIQ account
-        const hasAccount = await checkUserHasDeadlineIQAccount(firebaseUser);
-        if (!hasAccount) {
-          console.warn("Unregistered Firebase user detected on load. Rejecting access.");
-          await logOutFromFirebase();
-          clearSession();
-          setUser(null);
-          setIsLoading(false);
-          return;
-        }
-
         const local = getSession();
-        const primaryUsn = local?.usn || "";
+        const matchesCurrentUid = Boolean(local && local.uid === firebaseUser.uid);
+        const primaryUsn = matchesCurrentUid ? local?.usn || "" : "";
         const authUser: AuthUser = {
           uid: firebaseUser.uid,
           usn: primaryUsn,
-          name: firebaseUser.displayName || local?.name || "Student",
+          name: firebaseUser.displayName || (matchesCurrentUid ? local?.name : "") || "Student",
           email: firebaseUser.email,
           photoURL: firebaseUser.photoURL,
           isFirebaseUser: true,
@@ -147,10 +137,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!fbUser) return null;
 
         const local = getSession();
+        const matchesCurrentUid = Boolean(local && local.uid === fbUser.uid);
         const authUser: AuthUser = {
           uid: fbUser.uid,
-          usn: local?.usn || "",
-          name: fbUser.displayName || "Student",
+          usn: matchesCurrentUid ? local?.usn || "" : "",
+          name: fbUser.displayName || (matchesCurrentUid ? local?.name : "") || "Student",
           email: fbUser.email,
           photoURL: fbUser.photoURL,
           isFirebaseUser: true,
@@ -222,10 +213,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const fbUser = await fbSignInWithEmail(email, pass);
         const local = getSession();
+        const matchesCurrentUid = Boolean(local && local.uid === fbUser.uid);
         const authUser: AuthUser = {
           uid: fbUser.uid,
-          usn: local?.usn || "",
-          name: fbUser.displayName || "Student",
+          usn: matchesCurrentUid ? local?.usn || "" : "",
+          name: fbUser.displayName || (matchesCurrentUid ? local?.name : "") || "Student",
           email: fbUser.email,
           photoURL: fbUser.photoURL,
           isFirebaseUser: true,

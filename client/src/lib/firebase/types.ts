@@ -24,9 +24,15 @@ export interface UserProfileDocument {
     examAlerts?: boolean;
     compactView?: boolean;
   };
+  exams?: any[];
+  timetable?: any[];
+  deadlines?: any[];
+  events?: any[];
+  todayPlan?: any;
   createdAt: string;
   updatedAt: string;
   lastLoginAt?: string;
+  [key: string]: any;
 }
 
 /**

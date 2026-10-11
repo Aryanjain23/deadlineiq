@@ -30,7 +30,7 @@ interface TimetableModalProps {
   isOpen: boolean;
   onClose: () => void;
   timetable: TimetableEntry[];
-  onUpdateTimetable: (entries: TimetableEntry[]) => void;
+  onUpdateTimetable: (entries: TimetableEntry[]) => Promise<void> | void;
 }
 
 const TIME_OPTIONS = [
@@ -111,7 +111,7 @@ export default function TimetableModal({
     setFormError(null);
   };
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!subject.trim()) {
       setFormError("Please enter a subject name.");
@@ -123,56 +123,68 @@ export default function TimetableModal({
       return;
     }
 
-    if (editingId) {
-      const updated = timetable.map((e) =>
-        e.id === editingId
-          ? {
-              ...e,
-              subject: subject.trim(),
-              subjectCode: subjectCode.trim() || undefined,
-              day,
-              startTime,
-              endTime,
-              room: room.trim() || undefined,
-              instructor: instructor.trim() || undefined,
-            }
-          : e
-      );
-      onUpdateTimetable(updated);
-    } else {
-      const newEntry: TimetableEntry = {
-        id: `entry-${nanoid(8)}`,
-        subject: subject.trim(),
-        subjectCode: subjectCode.trim() || undefined,
-        day,
-        startTime,
-        endTime,
-        room: room.trim() || undefined,
-        instructor: instructor.trim() || undefined,
-      };
-      onUpdateTimetable([...timetable, newEntry]);
-    }
+    try {
+      if (editingId) {
+        const updated = timetable.map((e) =>
+          e.id === editingId
+            ? {
+                ...e,
+                subject: subject.trim(),
+                subjectCode: subjectCode.trim() || undefined,
+                day,
+                startTime,
+                endTime,
+                room: room.trim() || undefined,
+                instructor: instructor.trim() || undefined,
+              }
+            : e
+        );
+        await onUpdateTimetable(updated);
+      } else {
+        const newEntry: TimetableEntry = {
+          id: `entry-${nanoid(8)}`,
+          subject: subject.trim(),
+          subjectCode: subjectCode.trim() || undefined,
+          day,
+          startTime,
+          endTime,
+          room: room.trim() || undefined,
+          instructor: instructor.trim() || undefined,
+        };
+        await onUpdateTimetable([...timetable, newEntry]);
+      }
 
-    resetForm();
-  };
-
-  const handleDelete = (id: string) => {
-    const updated = timetable.filter((e) => e.id !== id);
-    onUpdateTimetable(updated);
-    if (editingId === id) {
       resetForm();
+    } catch (err: any) {
+      setFormError(err?.message || "Failed to save timetable to cloud.");
     }
   };
 
-  const handleClearTimetable = () => {
+  const handleDelete = async (id: string) => {
+    const updated = timetable.filter((e) => e.id !== id);
+    try {
+      await onUpdateTimetable(updated);
+      if (editingId === id) {
+        resetForm();
+      }
+    } catch (err) {
+      console.warn("Delete timetable error:", err);
+    }
+  };
+
+  const handleClearTimetable = async () => {
     if (timetable.length === 0) return;
     if (!isConfirmingClear) {
       setIsConfirmingClear(true);
       return;
     }
-    onUpdateTimetable([]);
-    setIsConfirmingClear(false);
-    resetForm();
+    try {
+      await onUpdateTimetable([]);
+      setIsConfirmingClear(false);
+      resetForm();
+    } catch (err) {
+      console.warn("Clear timetable error:", err);
+    }
   };
 
   const getEntriesForDay = (targetDay: DayOfWeek) => {
@@ -319,7 +331,7 @@ export default function TimetableModal({
                   type="text"
                   value={subject}
                   onChange={(e) => setSubject(e.target.value)}
-                  placeholder="e.g. Physics, Mathematics"
+                  placeholder="Enter subject"
                   className="w-full px-3 py-2 rounded-xl border border-border bg-surface-elevated text-text-primary text-xs focus:outline-none focus:ring-1 focus:ring-accent"
                   required
                 />
@@ -334,7 +346,7 @@ export default function TimetableModal({
                   type="text"
                   value={subjectCode}
                   onChange={(e) => setSubjectCode(e.target.value)}
-                  placeholder="e.g. PHY101"
+                  placeholder="Enter subject code (optional)"
                   className="w-full px-3 py-2 rounded-xl border border-border bg-surface-elevated text-text-primary text-xs focus:outline-none focus:ring-1 focus:ring-accent"
                 />
               </div>
@@ -402,7 +414,7 @@ export default function TimetableModal({
                   type="text"
                   value={room}
                   onChange={(e) => setRoom(e.target.value)}
-                  placeholder="e.g. Hall A-102, Lab 3"
+                  placeholder="Enter room or location (optional)"
                   className="w-full px-3 py-2 rounded-xl border border-border bg-surface-elevated text-text-primary text-xs focus:outline-none focus:ring-1 focus:ring-accent"
                 />
               </div>
@@ -416,7 +428,7 @@ export default function TimetableModal({
                   type="text"
                   value={instructor}
                   onChange={(e) => setInstructor(e.target.value)}
-                  placeholder="e.g. Dr. Ramesh, Prof. Anita"
+                  placeholder="Enter instructor name (optional)"
                   className="w-full px-3 py-2 rounded-xl border border-border bg-surface-elevated text-text-primary text-xs focus:outline-none focus:ring-1 focus:ring-accent"
                 />
               </div>

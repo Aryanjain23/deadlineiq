@@ -217,8 +217,9 @@ export default function AiExtractModal({
       if (!items) return;
 
       for (let i = 0; i < items.length; i++) {
-        if (items[i].type.indexOf("image") !== -1) {
-          const file = items[i].getAsFile();
+        const item = items[i];
+        if (item && item.type && item.type.indexOf("image") !== -1) {
+          const file = item.getAsFile();
           if (file) {
             e.preventDefault();
             processFile(file);
@@ -327,85 +328,95 @@ export default function AiExtractModal({
    * - Checks against existingDeadlines for duplicates.
    */
   const resolveCandidates = (rawItems: any[]): CandidateDeadline[] => {
-    return rawItems.map((raw) => {
-      const candidateId = `cand-${nanoid(6)}`;
-      const subject = raw.subject || "General Academic";
-      const importance: ImportanceLevel = ["CRITICAL", "HIGH", "MEDIUM", "LOW"].includes(raw.importance)
-        ? raw.importance
-        : "MEDIUM";
+    if (!Array.isArray(rawItems)) return [];
+    const safeDeadlines = Array.isArray(existingDeadlines) ? existingDeadlines : [];
+    const safeTimetable = Array.isArray(timetable) ? timetable : [];
 
-      let dateSourceType: DateSourceType = "user-entered";
-      let dueDate = "";
-      let dueTime = raw.dueTime || "";
-      let isDateMissing = true;
-      let isDateAmbiguous = Boolean(raw.isDateAmbiguous);
-      let ambiguityNote = raw.ambiguityNote || null;
-      let timetableMatch: NextClassResult | undefined;
+    return rawItems
+      .filter((raw) => raw && typeof raw === "object")
+      .map((raw) => {
+        const candidateId = `cand-${nanoid(6)}`;
+        const subject = String(raw.subject || "General Academic").trim();
+        const importance: ImportanceLevel = ["CRITICAL", "HIGH", "MEDIUM", "LOW"].includes(raw.importance)
+          ? raw.importance
+          : "MEDIUM";
 
-      // 1. Explicit calendar date found in notice
-      if (raw.hasExplicitDate && raw.explicitDueDate && raw.explicitDueDate !== "null") {
-        dateSourceType = "ai-extracted";
-        dueDate = raw.explicitDueDate;
-        dueTime = raw.dueTime || "";
-        isDateMissing = false;
-      }
-      // 2. Relative class mention (e.g. "next class", "next lab")
-      else if (raw.isRelativeClassMention) {
-        const nextClass = getNextClassForSubject(timetable, subject);
-        if (nextClass) {
-          dateSourceType = "timetable-inferred";
-          dueDate = nextClass.dateStr;
-          dueTime = nextClass.timeStr;
-          timetableMatch = nextClass;
+        let dateSourceType: DateSourceType = "user-entered";
+        let dueDate = "";
+        let dueTime = raw.dueTime ? String(raw.dueTime).trim() : "";
+        let isDateMissing = true;
+        let isDateAmbiguous = Boolean(raw.isDateAmbiguous);
+        let ambiguityNote = raw.ambiguityNote ? String(raw.ambiguityNote) : null;
+        let timetableMatch: NextClassResult | undefined;
+
+        // 1. Explicit calendar date found in notice
+        if (raw.hasExplicitDate && raw.explicitDueDate && String(raw.explicitDueDate).trim() !== "null") {
+          dateSourceType = "ai-extracted";
+          dueDate = String(raw.explicitDueDate).trim();
+          dueTime = raw.dueTime ? String(raw.dueTime).trim() : "";
           isDateMissing = false;
-          isDateAmbiguous = true;
-          ambiguityNote = `Relative notice ("next class") matched to your weekly schedule: ${nextClass.dayOfWeek}, ${nextClass.formattedDisplay}.`;
+        }
+        // 2. Relative class mention (e.g. "next class", "next lab")
+        else if (raw.isRelativeClassMention) {
+          const nextClass = getNextClassForSubject(safeTimetable, subject);
+          if (nextClass) {
+            dateSourceType = "timetable-inferred";
+            dueDate = nextClass.dateStr;
+            dueTime = nextClass.timeStr;
+            timetableMatch = nextClass;
+            isDateMissing = false;
+            isDateAmbiguous = true;
+            ambiguityNote = `Relative notice ("next class") matched to your weekly schedule: ${nextClass.dayOfWeek}, ${nextClass.formattedDisplay}.`;
+          } else {
+            // If no matching class exists in timetable, NEVER invent a date!
+            dateSourceType = "user-entered";
+            dueDate = "";
+            isDateMissing = true;
+            isDateAmbiguous = true;
+            ambiguityNote = `Mentions submitting in "next class", but no ${subject} class was found in your timetable.`;
+          }
         } else {
-          // If no matching class exists in timetable, NEVER invent a date!
+          // No date mentioned at all
           dateSourceType = "user-entered";
           dueDate = "";
           isDateMissing = true;
           isDateAmbiguous = true;
-          ambiguityNote = `Mentions submitting in "next class", but no ${subject} class was found in your timetable.`;
+          ambiguityNote = ambiguityNote || "No submission date was found in this notice.";
         }
-      } else {
-        // No date mentioned at all
-        dateSourceType = "user-entered";
-        dueDate = "";
-        isDateMissing = true;
-        isDateAmbiguous = true;
-        ambiguityNote = ambiguityNote || "No submission date was found in this notice.";
-      }
 
-      // Check for duplicate against user's existing deadlines
-      const duplicateMatch = detectDuplicate(
-        { taskName: raw.taskName || "Academic Assignment", subject, dueDate },
-        existingDeadlines
-      );
+        // Check for duplicate against user's existing deadlines
+        const duplicateMatch = detectDuplicate(
+          { taskName: String(raw.taskName || "Academic Assignment").trim(), subject, dueDate },
+          safeDeadlines
+        );
 
-      return {
-        id: candidateId,
-        taskName: raw.taskName || "Academic Assignment",
-        subject,
-        dueDate,
-        dueTime,
-        importance,
-        description: raw.description || "",
-        sourceType: raw.sourceType || "CLASS_NOTICE",
-        confidenceLevel: raw.confidenceLevel || "HIGH",
-        geminiReasoning: raw.geminiReasoning || "Extracted from academic notice.",
-        notes: raw.notes || null,
-        dateSourceType,
-        isDateMissing,
-        isDateAmbiguous,
-        ambiguityNote,
-        timetableMatch,
-        duplicateMatch,
-        // If it's a potential duplicate, uncheck by default so user doesn't accidentally save twice
-        selected: !duplicateMatch,
-        isSaved: false,
-      };
-    });
+        const confidenceLevel: "HIGH" | "MEDIUM" | "LOW" = ["HIGH", "MEDIUM", "LOW"].includes(raw.confidenceLevel)
+          ? raw.confidenceLevel
+          : "HIGH";
+
+        return {
+          id: candidateId,
+          taskName: String(raw.taskName || "Academic Assignment").trim(),
+          subject,
+          dueDate,
+          dueTime,
+          importance,
+          description: raw.description ? String(raw.description).trim() : "",
+          sourceType: String(raw.sourceType || "CLASS_NOTICE"),
+          confidenceLevel,
+          geminiReasoning: String(raw.geminiReasoning || "Extracted from academic notice."),
+          notes: raw.notes ? String(raw.notes) : null,
+          dateSourceType,
+          isDateMissing,
+          isDateAmbiguous,
+          ambiguityNote,
+          timetableMatch,
+          duplicateMatch,
+          // If it's a potential duplicate, uncheck by default so user doesn't accidentally save twice
+          selected: !duplicateMatch,
+          isSaved: false,
+        };
+      });
   };
 
   const handleExtractDeadlines = async () => {
@@ -674,6 +685,7 @@ export default function AiExtractModal({
           </div>
 
           <button
+            type="button"
             onClick={() => {
               resetAll();
               onClose();
@@ -848,7 +860,7 @@ export default function AiExtractModal({
                 rows={3}
                 value={pastedText}
                 onChange={(e) => setPastedText(e.target.value)}
-                placeholder="e.g. 'Physics PHY101: Submit Experiment 4 lab calculations by October 14, 2026 before 17:00...'"
+                placeholder="Paste announcement, syllabus, or deadline notice text here..."
                 className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-[#111726] border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-all font-sans resize-none shadow-xs"
               />
             </div>

@@ -36,6 +36,7 @@ import {
 import {
   saveDailyPlan,
   getDailyPlan,
+  clearAllDailyPlans,
 } from "@/lib/services/planService";
 import { getFirebaseAuth } from "@/lib/firebase";
 
@@ -53,6 +54,7 @@ interface PlanMyDayModalProps {
   onViewTask: (id: string) => void;
   onOpenAddDeadline?: () => void;
   onOpenTimetable?: () => void;
+  onPlanCleared?: () => void;
 }
 
 export default function PlanMyDayModal({
@@ -69,6 +71,7 @@ export default function PlanMyDayModal({
   onViewTask,
   onOpenAddDeadline,
   onOpenTimetable,
+  onPlanCleared,
 }: PlanMyDayModalProps) {
   const today = useMemo(() => new Date(), []);
   const todayStr = useMemo(() => formatDateToYYYYMMDD(today), [today]);
@@ -85,6 +88,11 @@ export default function PlanMyDayModal({
   const [isSaving, setIsSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Clear All Plans Confirmation State
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
+  const [clearSuccess, setClearSuccess] = useState(false);
 
   // Edit Block Modal State
   const [editingBlock, setEditingBlock] = useState<ScheduleBlock | null>(null);
@@ -121,27 +129,33 @@ export default function PlanMyDayModal({
     let isMounted = true;
     const now = clickDate || new Date();
 
-    // Distinguish: SAVED PLAN EXISTS vs NO SAVED PLAN (Part 12)
+    // Distinguish: SAVED PLAN EXISTS vs NO SAVED PLAN
     getDailyPlan(uid, todayStr)
       .then((saved) => {
         if (!isMounted) return;
         if (saved && saved.blocks && saved.blocks.length > 0) {
           setBlocks(saved.blocks);
-        } else {
+        } else if (initialMode === "generate") {
           handleGeneratePlan(now, false);
+        } else {
+          setBlocks([]);
         }
       })
       .catch((err) => {
         console.warn("Could not load daily plan:", err);
         if (isMounted) {
-          handleGeneratePlan(now, false);
+          if (initialMode === "generate") {
+            handleGeneratePlan(now, false);
+          } else {
+            setBlocks([]);
+          }
         }
       });
 
     return () => {
       isMounted = false;
     };
-  }, [isOpen, uid, todayStr, clickDate]);
+  }, [isOpen, uid, todayStr, clickDate, initialMode]);
 
   const activeDeadlines = useMemo(
     () => (deadlines || []).filter((d) => !d.completed),
@@ -246,6 +260,27 @@ export default function PlanMyDayModal({
       setErrorMessage(`Save Error: ${msg}`);
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleConfirmClearAll = async () => {
+    setIsClearing(true);
+    setErrorMessage(null);
+    try {
+      await clearAllDailyPlans(uid);
+      setBlocks([]);
+      setSavedSuccess(false);
+      setClearSuccess(true);
+      setShowClearConfirm(false);
+      if (onPlanCleared) {
+        onPlanCleared();
+      }
+      setTimeout(() => setClearSuccess(false), 3000);
+    } catch (err: any) {
+      console.error("Failed to clear all plans:", err);
+      setErrorMessage("Failed to clear all saved plans from Cloud Firestore.");
+    } finally {
+      setIsClearing(false);
     }
   };
 
@@ -415,16 +450,25 @@ export default function PlanMyDayModal({
               </button>
             </div>
           ) : blocks.length === 0 ? (
-            /* No blocks in current time window */
-            <div className="py-12 text-center max-w-xs mx-auto">
-              <p className="text-xs text-text-secondary">
-                No blocks scheduled for this time window.
+            /* No blocks in current time window / plans cleared */
+            <div className="py-14 text-center max-w-sm mx-auto flex flex-col items-center">
+              <div className="w-12 h-12 rounded-2xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center mb-3 border border-blue-500/20">
+                <Clock size={22} />
+              </div>
+              <h3 className="text-sm font-semibold text-text-primary mb-1">
+                No Active Plan for Today
+              </h3>
+              <p className="text-xs text-text-secondary max-w-xs mb-4">
+                Plan your day dynamically based on your deadlines, classes, and exams.
               </p>
               <button
-                onClick={() => handleGeneratePlan(undefined, true)}
-                className="mt-3 px-4 py-2 rounded-xl text-xs font-semibold text-white bg-primary hover:brightness-110 cursor-pointer"
+                type="button"
+                onClick={() => handleGeneratePlan(new Date(), false)}
+                disabled={isGenerating}
+                className="px-4 py-2.5 rounded-xl text-xs font-semibold text-white bg-primary hover:brightness-110 flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
               >
-                Generate Plan
+                <Sparkles size={14} />
+                <span>{isGenerating ? "Generating..." : "Generate Schedule (Next 9 Hours)"}</span>
               </button>
             </div>
           ) : (
@@ -591,7 +635,7 @@ export default function PlanMyDayModal({
 
         {/* 3. FOOTER ACTIONS */}
         <div className="px-6 py-4 border-t border-border flex flex-col sm:flex-row items-center justify-between gap-3 bg-surface">
-          <div className="flex items-center gap-2 w-full sm:w-auto">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
             <button
               type="button"
               onClick={() => setIsAddingBlock(true)}
@@ -608,6 +652,15 @@ export default function PlanMyDayModal({
             >
               <RotateCcw size={14} className={isGenerating ? "animate-spin" : ""} />
               <span>Regenerate (Next 9 Hours)</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowClearConfirm(true)}
+              className="px-3.5 py-2 rounded-xl border border-rose-200 dark:border-rose-900/40 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors flex items-center justify-center gap-1.5 cursor-pointer w-full sm:w-auto"
+              title="Clear all saved Plan My Day schedules"
+            >
+              <Trash2 size={13} />
+              <span>Clear All Plans</span>
             </button>
           </div>
 
@@ -645,6 +698,63 @@ export default function PlanMyDayModal({
           </div>
         </div>
 
+        {/* 4. CLEAR ALL PLANS CONFIRMATION MODAL */}
+        <AnimatePresence>
+          {showClearConfirm && (
+            <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="w-full max-w-md bg-surface-elevated border border-border rounded-2xl p-5 shadow-2xl space-y-4"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="p-2.5 rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 flex-shrink-0">
+                    <Trash2 size={20} />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-semibold text-text-primary">
+                      Clear All Saved Plans?
+                    </h3>
+                    <p className="text-xs text-text-secondary mt-1 leading-relaxed">
+                      All saved Plan My Day schedules belonging to your account will be removed from Cloud Firestore. Your deadlines, timetable, exams, and academic profile will remain completely untouched.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-border">
+                  <button
+                    type="button"
+                    disabled={isClearing}
+                    onClick={() => setShowClearConfirm(false)}
+                    className="px-4 py-2 rounded-xl text-xs font-medium text-text-secondary hover:text-text-primary border border-border hover:bg-surface transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isClearing}
+                    onClick={handleConfirmClearAll}
+                    className="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-rose-600 hover:bg-rose-500 transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs disabled:opacity-50"
+                  >
+                    {isClearing ? (
+                      <>
+                        <RotateCcw size={13} className="animate-spin" />
+                        <span>Clearing...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 size={13} />
+                        <span>Clear All Plans</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
         {/* 4. ADD BLOCK MODAL */}
         <AnimatePresence>
           {isAddingBlock && (
@@ -675,7 +785,7 @@ export default function PlanMyDayModal({
                     </label>
                     <input
                       type="text"
-                      placeholder="e.g. Mathematics revision, Coding practice"
+                      placeholder="Enter activity or task"
                       value={newBlockActivity}
                       onChange={(e) => setNewBlockActivity(e.target.value)}
                       className="w-full px-3 py-2 rounded-xl bg-surface border border-border text-xs text-text-primary focus:outline-none focus:border-primary"
@@ -731,7 +841,7 @@ export default function PlanMyDayModal({
                       </label>
                       <input
                         type="text"
-                        placeholder="e.g. Mathematics"
+                        placeholder="Enter subject (optional)"
                         value={newBlockSubject}
                         onChange={(e) => setNewBlockSubject(e.target.value)}
                         className="w-full px-3 py-2 rounded-xl bg-surface border border-border text-xs text-text-primary focus:outline-none focus:border-primary"
@@ -745,7 +855,7 @@ export default function PlanMyDayModal({
                     </label>
                     <input
                       type="text"
-                      placeholder="e.g. Due tomorrow"
+                      placeholder="Add notes (optional)"
                       value={newBlockReason}
                       onChange={(e) => setNewBlockReason(e.target.value)}
                       className="w-full px-3 py-2 rounded-xl bg-surface border border-border text-xs text-text-primary focus:outline-none focus:border-primary"

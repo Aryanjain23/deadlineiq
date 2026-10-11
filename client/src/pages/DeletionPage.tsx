@@ -157,7 +157,7 @@ export default function DeletionPage() {
                   <input
                     type="email"
                     required
-                    placeholder="student@example.com"
+                    placeholder="Enter your email"
                     value={requestEmail}
                     onChange={(e) => setRequestEmail(e.target.value)}
                     className="w-full rounded-xl border border-slate-300 dark:border-border bg-white dark:bg-black/40 px-3.5 py-2 text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-primary"

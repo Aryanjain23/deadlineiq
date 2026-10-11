@@ -35,7 +35,7 @@ interface ExamsModalProps {
   isOpen: boolean;
   onClose: () => void;
   exams: Exam[];
-  onUpdateExams: (exams: Exam[]) => void;
+  onUpdateExams: (exams: Exam[]) => Promise<void> | void;
   timetable?: TimetableEntry[];
 }
 
@@ -61,6 +61,7 @@ export default function ExamsModal({
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isAiImportOpen, setIsAiImportOpen] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Form states
   const [subject, setSubject] = useState("");
@@ -94,6 +95,7 @@ export default function ExamsModal({
     setFormError(null);
     setIsAdding(false);
     setEditingId(null);
+    setIsSaving(false);
   };
 
   const handleStartEdit = (item: Exam) => {
@@ -110,7 +112,7 @@ export default function ExamsModal({
     setFormError(null);
   };
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!subject.trim()) {
       setFormError("Please enter a subject name.");
@@ -129,53 +131,68 @@ export default function ExamsModal({
       return;
     }
 
-    if (editingId) {
-      const updated = exams.map((ex) =>
-        ex.id === editingId
-          ? {
-              ...ex,
-              subject: subject.trim(),
-              subjectCode: subjectCode.trim() || undefined,
-              examDate,
-              startTime,
-              endTime: endTime.trim() || undefined,
-              examType,
-              room: room.trim() || undefined,
-              notes: notes.trim() || undefined,
-            }
-          : ex
-      );
-      onUpdateExams(updated);
-    } else {
-      const newExam: Exam = {
-        id: `exam-${nanoid(8)}`,
-        subject: subject.trim(),
-        subjectCode: subjectCode.trim() || undefined,
-        examDate,
-        startTime,
-        endTime: endTime.trim() || undefined,
-        examType,
-        room: room.trim() || undefined,
-        notes: notes.trim() || undefined,
-        createdAt: new Date().toISOString(),
-      };
-      onUpdateExams([...exams, newExam]);
-    }
+    setIsSaving(true);
+    try {
+      if (editingId) {
+        const updated = exams.map((ex) =>
+          ex.id === editingId
+            ? {
+                ...ex,
+                subject: subject.trim(),
+                subjectCode: subjectCode.trim() || undefined,
+                examDate,
+                startTime,
+                endTime: endTime.trim() || undefined,
+                examType,
+                room: room.trim() || undefined,
+                notes: notes.trim() || undefined,
+              }
+            : ex
+        );
+        await onUpdateExams(updated);
+      } else {
+        const newExam: Exam = {
+          id: `exam-${nanoid(8)}`,
+          subject: subject.trim(),
+          subjectCode: subjectCode.trim() || undefined,
+          examDate,
+          startTime,
+          endTime: endTime.trim() || undefined,
+          examType,
+          room: room.trim() || undefined,
+          notes: notes.trim() || undefined,
+          createdAt: new Date().toISOString(),
+        };
+        await onUpdateExams([...exams, newExam]);
+      }
 
-    resetForm();
-  };
-
-  const handleDelete = (id: string) => {
-    onUpdateExams(exams.filter((ex) => ex.id !== id));
-    if (editingId === id) {
       resetForm();
+    } catch (err: any) {
+      setFormError(err?.message || "Failed to save exam to cloud.");
+    } finally {
+      setIsSaving(false);
     }
   };
 
-  const handleClearAllExams = () => {
+  const handleDelete = async (id: string) => {
+    try {
+      await onUpdateExams(exams.filter((ex) => ex.id !== id));
+      if (editingId === id) {
+        resetForm();
+      }
+    } catch (err) {
+      console.warn("Delete exam error:", err);
+    }
+  };
+
+  const handleClearAllExams = async () => {
     if (window.confirm("Clear all exams from your schedule?")) {
-      onUpdateExams([]);
-      resetForm();
+      try {
+        await onUpdateExams([]);
+        resetForm();
+      } catch (err) {
+        console.warn("Clear all exams error:", err);
+      }
     }
   };
 
@@ -379,7 +396,7 @@ export default function ExamsModal({
                       type="text"
                       value={subject}
                       onChange={(e) => setSubject(e.target.value)}
-                      placeholder="e.g. Electronics, Mathematics"
+                      placeholder="Enter subject"
                       className="w-full px-3.5 py-2.5 rounded-xl bg-surface-elevated border border-border text-text-primary placeholder:text-text-muted text-sm focus:outline-none focus:ring-1 focus:ring-accent transition-all font-sans"
                       required
                     />
@@ -394,7 +411,7 @@ export default function ExamsModal({
                       type="text"
                       value={subjectCode}
                       onChange={(e) => setSubjectCode(e.target.value)}
-                      placeholder="e.g. ECE103, MAT102"
+                      placeholder="Enter subject code (optional)"
                       className="w-full px-3.5 py-2.5 rounded-xl bg-surface-elevated border border-border text-text-primary placeholder:text-text-muted text-sm focus:outline-none focus:ring-1 focus:ring-accent transition-all font-mono"
                     />
                   </div>
@@ -471,7 +488,7 @@ export default function ExamsModal({
                       type="text"
                       value={room}
                       onChange={(e) => setRoom(e.target.value)}
-                      placeholder="e.g. Room 204, Auditorium Hall A"
+                      placeholder="Enter room or hall (optional)"
                       className="w-full px-3.5 py-2.5 rounded-xl bg-surface-elevated border border-border text-text-primary placeholder:text-text-muted text-sm focus:outline-none focus:ring-1 focus:ring-accent transition-all font-sans"
                     />
                   </div>
@@ -486,7 +503,7 @@ export default function ExamsModal({
                     type="text"
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
-                    placeholder="e.g. Modules 1 & 2, Bring non-programmable scientific calculator"
+                    placeholder="Add syllabus or notes (optional)"
                     className="w-full px-3.5 py-2.5 rounded-xl bg-surface-elevated border border-border text-text-primary placeholder:text-text-muted text-sm focus:outline-none focus:ring-1 focus:ring-accent transition-all font-sans"
                   />
                 </div>

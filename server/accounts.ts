@@ -72,7 +72,7 @@ export function registerAccount(record: {
     email: clean,
     uid: record.uid || existing?.uid,
     displayName: record.displayName || existing?.displayName || "Student",
-    usn: record.usn || existing?.usn || "4NI25EC023",
+    usn: record.usn || existing?.usn || "",
     createdAt: existing?.createdAt || now,
   };
   accounts.set(clean, entry);

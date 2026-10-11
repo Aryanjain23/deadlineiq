@@ -110,16 +110,17 @@ export default function AccountPage() {
     if (!userUid) return;
 
     let isMounted = true;
+    // Load user profile strictly for authenticated UID
     getUserProfile(userUid).then((data) => {
       if (!isMounted) return;
       if (data) {
         setProfile(data);
-        setDisplayName(data.displayName || authUser?.name || "Student");
-        setUsn(data.usn || authUser?.usn || "");
-        setDegree(data.degree || "Bachelor of Technology (B.Tech)");
-        setBranch(data.branch || "Computer Science & Engineering");
-        setSemester(data.semester || "Semester 4");
-        setCollege(data.college || "The National Institute of Engineering");
+        setDisplayName(data.displayName || authUser?.name || "");
+        setUsn(data.usn || "");
+        setDegree(data.degree || "");
+        setBranch(data.branch || "");
+        setSemester(data.semester || "");
+        setCollege(data.college || "");
         setPhotoURL(data.photoURL || authUser?.photoURL || null);
         if (data.preferences) {
           setDailyPlanReminder(data.preferences.dailyPlanReminder ?? true);
@@ -127,12 +128,13 @@ export default function AccountPage() {
           setExamAlerts(data.preferences.examAlerts ?? true);
         }
       } else {
-        setDisplayName(authUser?.name || "Student");
-        setUsn(authUser?.usn || "");
-        setDegree("Bachelor of Technology (B.Tech)");
-        setBranch("Computer Science & Engineering");
-        setSemester("Semester 4");
-        setCollege("The National Institute of Engineering");
+        setProfile(null);
+        setDisplayName(authUser?.name || "");
+        setUsn("");
+        setDegree("");
+        setBranch("");
+        setSemester("");
+        setCollege("");
         setPhotoURL(authUser?.photoURL || null);
       }
     });
@@ -443,17 +445,34 @@ export default function AccountPage() {
                   <span>{authUser?.email || "Academic User"}</span>
                 </p>
 
-                <div className="flex items-center gap-2 mt-2.5 text-xs text-slate-600 dark:text-text-secondary flex-wrap">
-                  <span className="inline-flex items-center gap-1">
-                    <BookOpen size={13} className="text-[#a895ff]" />
-                    <span>{branch || "Computer Science"}</span>
-                  </span>
-                  <span className="text-slate-300 dark:text-white/20">•</span>
-                  <span className="inline-flex items-center gap-1 font-mono text-[11px]">
-                    <GraduationCap size={13} className="text-amber-500" />
-                    <span>{semester || "Semester 4"}</span>
-                  </span>
-                </div>
+                {(branch || semester || college) && (
+                  <div className="flex items-center gap-2 mt-2.5 text-xs text-slate-600 dark:text-text-secondary flex-wrap">
+                    {branch && (
+                      <span className="inline-flex items-center gap-1">
+                        <BookOpen size={13} className="text-[#a895ff]" />
+                        <span>{branch}</span>
+                      </span>
+                    )}
+                    {branch && semester && (
+                      <span className="text-slate-300 dark:text-white/20">•</span>
+                    )}
+                    {semester && (
+                      <span className="inline-flex items-center gap-1 font-mono text-[11px]">
+                        <GraduationCap size={13} className="text-amber-500" />
+                        <span>{semester}</span>
+                      </span>
+                    )}
+                    {(branch || semester) && college && (
+                      <span className="text-slate-300 dark:text-white/20">•</span>
+                    )}
+                    {college && (
+                      <span className="inline-flex items-center gap-1">
+                        <Building2 size={13} className="text-[#76d8fb]" />
+                        <span>{college}</span>
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -622,7 +641,7 @@ export default function AccountPage() {
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
                   disabled={!isEditing}
-                  placeholder="Your Full Name"
+                  placeholder="Enter full name"
                   className="w-full rounded-xl border border-slate-200 dark:border-border bg-slate-50/60 dark:bg-[#0c101a] pl-10 pr-3.5 py-2.5 text-xs sm:text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-75 disabled:bg-slate-100/70 dark:disabled:bg-[#111624] transition-all"
                 />
               </div>
@@ -642,7 +661,7 @@ export default function AccountPage() {
                   value={usn}
                   onChange={(e) => setUsn(e.target.value.toUpperCase())}
                   disabled={!isEditing}
-                  placeholder="e.g. 4NI25EC023"
+                  placeholder="Enter student ID"
                   className="w-full rounded-xl border border-slate-200 dark:border-border bg-slate-50/60 dark:bg-[#0c101a] pl-10 pr-3.5 py-2.5 text-xs sm:text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-75 disabled:bg-slate-100/70 dark:disabled:bg-[#111624] transition-all uppercase"
                 />
               </div>
@@ -662,7 +681,7 @@ export default function AccountPage() {
                   value={degree}
                   onChange={(e) => setDegree(e.target.value)}
                   disabled={!isEditing}
-                  placeholder="e.g. Bachelor of Technology (B.Tech)"
+                  placeholder="Enter degree"
                   className="w-full rounded-xl border border-slate-200 dark:border-border bg-slate-50/60 dark:bg-[#0c101a] pl-10 pr-3.5 py-2.5 text-xs sm:text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-75 disabled:bg-slate-100/70 dark:disabled:bg-[#111624] transition-all"
                 />
               </div>
@@ -682,7 +701,7 @@ export default function AccountPage() {
                   value={branch}
                   onChange={(e) => setBranch(e.target.value)}
                   disabled={!isEditing}
-                  placeholder="e.g. Computer Science & Engineering"
+                  placeholder="Enter department"
                   className="w-full rounded-xl border border-slate-200 dark:border-border bg-slate-50/60 dark:bg-[#0c101a] pl-10 pr-3.5 py-2.5 text-xs sm:text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-75 disabled:bg-slate-100/70 dark:disabled:bg-[#111624] transition-all"
                 />
               </div>
@@ -702,7 +721,7 @@ export default function AccountPage() {
                   value={semester}
                   onChange={(e) => setSemester(e.target.value)}
                   disabled={!isEditing}
-                  placeholder="e.g. Semester 4"
+                  placeholder="Enter semester"
                   className="w-full rounded-xl border border-slate-200 dark:border-border bg-slate-50/60 dark:bg-[#0c101a] pl-10 pr-3.5 py-2.5 text-xs sm:text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-75 disabled:bg-slate-100/70 dark:disabled:bg-[#111624] transition-all"
                 />
               </div>
@@ -722,7 +741,7 @@ export default function AccountPage() {
                   value={college}
                   onChange={(e) => setCollege(e.target.value)}
                   disabled={!isEditing}
-                  placeholder="e.g. The National Institute of Engineering"
+                  placeholder="Enter institution"
                   className="w-full rounded-xl border border-slate-200 dark:border-border bg-slate-50/60 dark:bg-[#0c101a] pl-10 pr-3.5 py-2.5 text-xs sm:text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-75 disabled:bg-slate-100/70 dark:disabled:bg-[#111624] transition-all"
                 />
               </div>

@@ -551,7 +551,7 @@ export default function AiTimetableImportModal({
                                           <input
                                             type="text"
                                             value={cand.subjectCode}
-                                            placeholder="e.g. 18CS51"
+                                            placeholder="Enter course code (optional)"
                                             onChange={(e) =>
                                               updateCandidateField(cand.id, "subjectCode", e.target.value)
                                             }
@@ -615,7 +615,7 @@ export default function AiTimetableImportModal({
                                           <input
                                             type="text"
                                             value={cand.room}
-                                            placeholder="e.g. Room 301, Lab 2"
+                                            placeholder="Enter room or location (optional)"
                                             onChange={(e) =>
                                               updateCandidateField(cand.id, "room", e.target.value)
                                             }
@@ -629,7 +629,7 @@ export default function AiTimetableImportModal({
                                           <input
                                             type="text"
                                             value={cand.faculty}
-                                            placeholder="e.g. Dr. Ananya"
+                                            placeholder="Enter instructor (optional)"
                                             onChange={(e) =>
                                               updateCandidateField(cand.id, "faculty", e.target.value)
                                             }

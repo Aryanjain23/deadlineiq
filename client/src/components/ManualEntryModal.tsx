@@ -14,7 +14,7 @@ import { nanoid } from "nanoid";
 interface ManualEntryModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onAddDeadline: (deadline: Deadline) => void;
+  onAddDeadline: (deadline: Deadline) => Promise<void> | void;
   timetable?: TimetableEntry[];
   calendarEvents?: CalendarEvent[];
 }
@@ -150,7 +150,7 @@ export default function ManualEntryModal({
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!validate()) return;
 
@@ -167,19 +167,26 @@ export default function ManualEntryModal({
       source: "manual",
     };
 
-    onAddDeadline(newDeadline);
+    try {
+      await onAddDeadline(newDeadline);
 
-    // Reset fields
-    setTaskName("");
-    setSubject("");
-    setDueDate("");
-    setDueTime("");
-    setImportance("HIGH");
-    setDescription("");
-    setSmartSuggestion(null);
-    setTimetableFeedback(null);
-    setErrors({});
-    onClose();
+      // Reset fields
+      setTaskName("");
+      setSubject("");
+      setDueDate("");
+      setDueTime("");
+      setImportance("HIGH");
+      setDescription("");
+      setSmartSuggestion(null);
+      setTimetableFeedback(null);
+      setErrors({});
+      onClose();
+    } catch (err: any) {
+      setErrors((prev) => ({
+        ...prev,
+        taskName: err?.message || "Failed to save deadline to cloud.",
+      }));
+    }
   };
 
   return (
@@ -237,7 +244,7 @@ export default function ManualEntryModal({
                   setTaskName(e.target.value);
                   if (errors.taskName) setErrors((prev) => ({ ...prev, taskName: undefined }));
                 }}
-                placeholder="e.g. Submit Physics Lab Record"
+                placeholder="Enter title"
                 className={`w-full bg-surface border ${
                   errors.taskName
                     ? "border-rose-500 ring-2 ring-rose-500/20"
@@ -274,7 +281,7 @@ export default function ManualEntryModal({
                   setSubject(e.target.value);
                   if (errors.dueDate) setErrors((prev) => ({ ...prev, dueDate: undefined }));
                 }}
-                placeholder="e.g. Physics, Mathematics, Electronics"
+                placeholder="Enter subject"
                 className="w-full bg-surface border border-border focus:border-accent focus:ring-1 focus:ring-accent rounded-xl pl-10 pr-4 py-2.5 text-sm text-text-primary placeholder:text-text-muted outline-none transition-all duration-200"
               />
             </div>
@@ -482,7 +489,7 @@ export default function ManualEntryModal({
               rows={2}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Add notes or additional details..."
+              placeholder="Add description (optional)"
               className="w-full bg-surface border border-border focus:border-accent focus:ring-1 focus:ring-accent rounded-xl px-4 py-2.5 text-sm text-text-primary placeholder:text-text-muted outline-none transition-all duration-200 resize-none"
             />
           </div>

@@ -504,7 +504,7 @@ export default function AiExamImportModal({
                                   <input
                                     type="text"
                                     value={cand.subjectCode}
-                                    placeholder="e.g. 18CS43"
+                                    placeholder="Enter course code (optional)"
                                     onChange={(e) =>
                                       updateCandidateField(cand.id, "subjectCode", e.target.value)
                                     }
@@ -585,7 +585,7 @@ export default function AiExamImportModal({
                                   <input
                                     type="text"
                                     value={cand.room}
-                                    placeholder="e.g. Hall 2A"
+                                    placeholder="Enter hall or room (optional)"
                                     onChange={(e) =>
                                       updateCandidateField(cand.id, "room", e.target.value)
                                     }
@@ -599,7 +599,7 @@ export default function AiExamImportModal({
                                   <input
                                     type="text"
                                     value={cand.semesterBranch}
-                                    placeholder="e.g. 4th Sem CSE"
+                                    placeholder="Enter branch or semester (optional)"
                                     onChange={(e) =>
                                       updateCandidateField(
                                         cand.id,

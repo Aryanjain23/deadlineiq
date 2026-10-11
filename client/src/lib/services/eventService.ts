@@ -1,5 +1,6 @@
 import {
   getDocs,
+  getDoc,
   doc,
   setDoc,
   deleteDoc,
@@ -8,6 +9,7 @@ import {
 import {
   getEventsCollectionRef,
   getEventDocRef,
+  getUserDocRef,
   getFirebaseDb,
   getFirebaseAuth,
   handleFirestoreError,
@@ -21,10 +23,31 @@ import {
 } from "@/lib/calendar";
 import type { FirestoreEventDocument } from "@/lib/firebase/types";
 
-function isFirebaseAuthForUid(uid: string): boolean {
-  if (!uid || uid.startsWith("demo-")) return false;
-  const auth = getFirebaseAuth();
-  return Boolean(auth?.currentUser && auth.currentUser.uid === uid);
+function isRealUserUid(uid?: string | null): boolean {
+  if (!uid || typeof uid !== "string") return false;
+  if (uid === "guest" || uid === "default" || uid.startsWith("demo-")) return false;
+  return true;
+}
+
+async function executeWithAuthRetry<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err: any) {
+    const isPermission =
+      err?.code === "permission-denied" ||
+      String(err?.message || "").includes("Missing or insufficient permissions") ||
+      String(err?.message || "").includes("permission-denied");
+    if (isPermission) {
+      const auth = getFirebaseAuth();
+      if (auth?.currentUser) {
+        try {
+          await auth.currentUser.getIdToken(true);
+          return await fn();
+        } catch {}
+      }
+    }
+    throw err;
+  }
 }
 
 function normalizeFirestoreEvent(data: any): CalendarEvent {
@@ -52,41 +75,63 @@ function normalizeFirestoreEvent(data: any): CalendarEvent {
  */
 export async function getEvents(uid: string, fallbackKey = "default"): Promise<CalendarEvent[]> {
   const cacheKey = uid || fallbackKey;
+  const path = `users/${uid}/events`;
 
-  if (!isFirebaseAuthForUid(uid)) {
+  if (!isRealUserUid(uid)) {
     return loadEvents(cacheKey);
   }
 
   const db = getFirebaseDb();
+  if (!db) {
+    return loadEvents(cacheKey);
+  }
+
+  // 1. Check subcollection first
   const colRef = uid ? getEventsCollectionRef(uid) : null;
-
-  if (!db || !colRef) {
-    return loadEvents(cacheKey);
-  }
-
-  try {
-    const snap = await getDocs(colRef);
-    if (snap.empty) {
-      saveEvents(cacheKey, []);
-      return [];
-    }
-
-    const items: CalendarEvent[] = [];
-    for (const d of snap.docs) {
-      const data = d.data();
-      if (data.id?.startsWith("demo-") || d.id?.startsWith("demo-") || data.id?.startsWith("sample-")) {
-        deleteDoc(d.ref).catch((err) => console.warn("Purged legacy test event doc:", err));
-        continue;
+  if (colRef) {
+    try {
+      const snap = await executeWithAuthRetry(() => getDocs(colRef));
+      if (!snap.empty) {
+        const items: CalendarEvent[] = [];
+        for (const d of snap.docs) {
+          const data = d.data();
+          if (data.id?.startsWith("demo-") || data.id?.startsWith("sample-")) {
+            deleteDoc(d.ref).catch(() => {});
+            continue;
+          }
+          items.push(normalizeFirestoreEvent(data));
+        }
+        console.log(`[FIRESTORE READ]\nfeature: events\nuid: ${uid}\npath: ${path}\ndocumentsFound: ${items.length}`);
+        saveEvents(cacheKey, items);
+        return items;
       }
-      items.push(normalizeFirestoreEvent(data));
+    } catch (error) {
+      console.warn(`[FIRESTORE READ FAILED]\nfeature: events subcollection:`, error);
     }
-
-    saveEvents(cacheKey, items);
-    return items;
-  } catch (error) {
-    console.warn("Firestore getEvents failed, falling back to local cache:", error);
-    return loadEvents(cacheKey);
   }
+
+  // 2. Fall back to user document root
+  const userDocRef = getUserDocRef(uid);
+  if (userDocRef) {
+    try {
+      const uSnap = await executeWithAuthRetry(() => getDoc(userDocRef));
+      if (uSnap.exists()) {
+        const uData = uSnap.data();
+        if (Array.isArray(uData?.events) && uData.events.length > 0) {
+          const items: CalendarEvent[] = uData.events
+            .filter((e: any) => e && !e.id?.startsWith("demo-") && !e.id?.startsWith("sample-"))
+            .map((e: any) => normalizeFirestoreEvent(e));
+          console.log(`[FIRESTORE READ]\nfeature: events\nuid: ${uid}\npath: users/${uid}\ndocumentsFound: ${items.length}`);
+          saveEvents(cacheKey, items);
+          return items;
+        }
+      }
+    } catch (uErr) {
+      console.warn(`[FIRESTORE READ FAILED]\nfeature: events user document:`, uErr);
+    }
+  }
+
+  return loadEvents(cacheKey);
 }
 
 /**
@@ -99,6 +144,7 @@ export async function createEvent(
 ): Promise<CalendarEvent> {
   const cacheKey = uid || fallbackKey;
   const now = new Date().toISOString();
+  const path = `users/${uid}/events/${event.id}`;
   const normalized: FirestoreEventDocument = {
     id: event.id,
     title: event.title.trim(),
@@ -121,13 +167,42 @@ export async function createEvent(
   saveEvents(cacheKey, updatedLocal);
 
   const db = getFirebaseDb();
-  if (db && isFirebaseAuthForUid(uid)) {
+  if (db && isRealUserUid(uid)) {
+    let userDocSaved = false;
+    const userDocRef = getUserDocRef(uid);
+    if (userDocRef) {
+      try {
+        await executeWithAuthRetry(() =>
+          setDoc(
+            userDocRef,
+            sanitizeForFirestore({
+              events: updatedLocal,
+              updatedAt: now,
+            }),
+            { merge: true }
+          )
+        );
+        userDocSaved = true;
+        console.log(`[FIRESTORE WRITE]\nfeature: events\nuid: ${uid}\npath: users/${uid}\ndocumentId: ${event.id}\nsuccess: true`);
+      } catch (uErr) {
+        console.warn(`[FIRESTORE WRITE]\nfeature: events user doc warning:`, uErr);
+      }
+    }
+
     const docRef = getEventDocRef(uid, event.id);
     if (docRef) {
       try {
-        await setDoc(docRef, sanitizeForFirestore(normalized), { merge: true });
+        await executeWithAuthRetry(() =>
+          setDoc(docRef, sanitizeForFirestore(normalized), { merge: true })
+        );
+        console.log(`[FIRESTORE WRITE]\nfeature: events\nuid: ${uid}\npath: ${path}\ndocumentId: ${event.id}\nsuccess: true`);
       } catch (error) {
-        handleFirestoreError(error, OperationType.WRITE, `users/${uid}/events/${event.id}`, getFirebaseAuth()?.currentUser);
+        if (userDocSaved) {
+          console.log(`[FIRESTORE WRITE]\nfeature: events\nuid: ${uid}\npath: ${path}\ndocumentId: ${event.id}\nsuccess: true (persisted to user document)`);
+        } else {
+          console.error(`[FIRESTORE WRITE]\nfeature: events\nuid: ${uid}\npath: ${path}\ndocumentId: ${event.id}\nsuccess: false`, error);
+          handleFirestoreError(error, OperationType.WRITE, path, getFirebaseAuth()?.currentUser);
+        }
       }
     }
   }
@@ -145,25 +220,52 @@ export async function updateEvent(
   fallbackKey = "default"
 ): Promise<void> {
   const cacheKey = uid || fallbackKey;
+  const path = `users/${uid}/events/${id}`;
+  const now = new Date().toISOString();
+
   const local = loadEvents(cacheKey);
   const updatedLocal = local.map((e) => (e.id === id ? { ...e, ...updates } : e));
   saveEvents(cacheKey, updatedLocal);
 
   const db = getFirebaseDb();
-  if (db && isFirebaseAuthForUid(uid)) {
+  if (db && isRealUserUid(uid)) {
+    let userDocSaved = false;
+    const userDocRef = getUserDocRef(uid);
+    if (userDocRef) {
+      try {
+        await executeWithAuthRetry(() =>
+          setDoc(
+            userDocRef,
+            sanitizeForFirestore({
+              events: updatedLocal,
+              updatedAt: now,
+            }),
+            { merge: true }
+          )
+        );
+        userDocSaved = true;
+      } catch {}
+    }
+
     const docRef = getEventDocRef(uid, id);
     if (docRef) {
       try {
-        await setDoc(
-          docRef,
-          sanitizeForFirestore({
-            ...updates,
-            updatedAt: new Date().toISOString(),
-          }),
-          { merge: true }
+        await executeWithAuthRetry(() =>
+          setDoc(
+            docRef,
+            sanitizeForFirestore({
+              ...updates,
+              updatedAt: now,
+            }),
+            { merge: true }
+          )
         );
+        console.log(`[FIRESTORE WRITE]\nfeature: events\nuid: ${uid}\npath: ${path}\ndocumentId: ${id}\nsuccess: true`);
       } catch (error) {
-        handleFirestoreError(error, OperationType.UPDATE, `users/${uid}/events/${id}`, getFirebaseAuth()?.currentUser);
+        if (!userDocSaved) {
+          console.error(`[FIRESTORE WRITE]\nfeature: events\nuid: ${uid}\npath: ${path}\ndocumentId: ${id}\nsuccess: false`, error);
+          handleFirestoreError(error, OperationType.UPDATE, path, getFirebaseAuth()?.currentUser);
+        }
       }
     }
   }
@@ -178,18 +280,43 @@ export async function deleteEvent(
   fallbackKey = "default"
 ): Promise<void> {
   const cacheKey = uid || fallbackKey;
+  const path = `users/${uid}/events/${id}`;
+  const now = new Date().toISOString();
+
   const local = loadEvents(cacheKey);
   const updatedLocal = local.filter((e) => e.id !== id);
   saveEvents(cacheKey, updatedLocal);
 
   const db = getFirebaseDb();
-  if (db && isFirebaseAuthForUid(uid)) {
+  if (db && isRealUserUid(uid)) {
+    let userDocSaved = false;
+    const userDocRef = getUserDocRef(uid);
+    if (userDocRef) {
+      try {
+        await executeWithAuthRetry(() =>
+          setDoc(
+            userDocRef,
+            sanitizeForFirestore({
+              events: updatedLocal,
+              updatedAt: now,
+            }),
+            { merge: true }
+          )
+        );
+        userDocSaved = true;
+      } catch {}
+    }
+
     const docRef = getEventDocRef(uid, id);
     if (docRef) {
       try {
-        await deleteDoc(docRef);
+        await executeWithAuthRetry(() => deleteDoc(docRef));
+        console.log(`[FIRESTORE WRITE]\nfeature: events\nuid: ${uid}\npath: ${path}\ndocumentId: ${id}\nsuccess: true (deleted)`);
       } catch (error) {
-        handleFirestoreError(error, OperationType.DELETE, `users/${uid}/events/${id}`, getFirebaseAuth()?.currentUser);
+        if (!userDocSaved) {
+          console.error(`[FIRESTORE WRITE]\nfeature: events\nuid: ${uid}\npath: ${path}\ndocumentId: ${id}\nsuccess: false`, error);
+          handleFirestoreError(error, OperationType.DELETE, path, getFirebaseAuth()?.currentUser);
+        }
       }
     }
   }
@@ -204,40 +331,72 @@ export function subscribeToEvents(
   fallbackKey = "default"
 ): () => void {
   const cacheKey = uid || fallbackKey;
+  const path = `users/${uid}/events`;
 
-  if (!isFirebaseAuthForUid(uid)) {
-    onUpdate(loadEvents(cacheKey));
+  onUpdate(loadEvents(cacheKey));
+
+  if (!isRealUserUid(uid)) {
     return () => {};
   }
 
   const db = getFirebaseDb();
   const colRef = uid ? getEventsCollectionRef(uid) : null;
+  const userDocRef = uid ? getUserDocRef(uid) : null;
 
   if (!db || !colRef) {
-    onUpdate(loadEvents(cacheKey));
     return () => {};
   }
+
+  let userDocUnsub: (() => void) | null = null;
 
   const unsubscribe = onSnapshot(
     colRef,
     (snapshot) => {
-      const items: CalendarEvent[] = [];
-      for (const d of snapshot.docs) {
-        const data = d.data();
-        if (data.id?.startsWith("demo-") || d.id?.startsWith("demo-") || data.id?.startsWith("sample-")) {
-          deleteDoc(d.ref).catch(() => {});
-          continue;
+      const count = snapshot.empty ? 0 : snapshot.docs.length;
+      console.log(`[FIRESTORE READ]\nfeature: events\nuid: ${uid}\npath: ${path}\ndocumentsFound: ${count}`);
+      if (!snapshot.empty) {
+        const items: CalendarEvent[] = [];
+        for (const d of snapshot.docs) {
+          const data = d.data();
+          if (data.id?.startsWith("demo-") || data.id?.startsWith("sample-")) {
+            deleteDoc(d.ref).catch(() => {});
+            continue;
+          }
+          items.push(normalizeFirestoreEvent(data));
         }
-        items.push(normalizeFirestoreEvent(data));
+        saveEvents(cacheKey, items);
+        onUpdate(items);
       }
-      saveEvents(cacheKey, items);
-      onUpdate(items);
     },
     (error) => {
-      console.warn("Events onSnapshot error, falling back to local cache:", error);
-      onUpdate(loadEvents(cacheKey));
+      console.warn(`[FIRESTORE READ FAILED]\nfeature: events subcollection, switching to user doc listener:`, error);
+      if (userDocRef && !userDocUnsub) {
+        userDocUnsub = onSnapshot(
+          userDocRef,
+          (uSnap) => {
+            if (uSnap.exists()) {
+              const uData = uSnap.data();
+              if (Array.isArray(uData?.events)) {
+                const items = uData.events
+                  .filter((e: any) => e && !e.id?.startsWith("demo-") && !e.id?.startsWith("sample-"))
+                  .map((e: any) => normalizeFirestoreEvent(e));
+                saveEvents(cacheKey, items);
+                onUpdate(items);
+              }
+            }
+          },
+          () => {
+            onUpdate(loadEvents(cacheKey));
+          }
+        );
+      } else {
+        onUpdate(loadEvents(cacheKey));
+      }
     }
   );
 
-  return unsubscribe;
+  return () => {
+    unsubscribe();
+    if (userDocUnsub) userDocUnsub();
+  };
 }

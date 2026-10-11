@@ -446,7 +446,7 @@ export default function Login() {
                           setEmail(e.target.value);
                           if (error) setError(null);
                         }}
-                        placeholder="student@university.edu"
+                        placeholder="Enter your email"
                         autoComplete="email"
                         required
                         className="w-full bg-[#0a0d14]/90 border border-[#242936] focus:border-[#76d8fb] focus:ring-1 focus:ring-[#76d8fb]/40 rounded-lg pl-10 pr-4 py-3 text-sm text-[#f4f5f7] placeholder-[#606b7d] outline-none transition-all duration-180"
@@ -550,7 +550,7 @@ export default function Login() {
                           setDisplayName(e.target.value);
                           if (error) setError(null);
                         }}
-                        placeholder="Your Name"
+                        placeholder="Enter full name"
                         autoComplete="name"
                         required
                         className="w-full bg-[#0a0d14]/90 border border-[#242936] focus:border-[#76d8fb] focus:ring-1 focus:ring-[#76d8fb]/40 rounded-lg pl-10 pr-4 py-3 text-sm text-[#f4f5f7] placeholder-[#606b7d] outline-none transition-all duration-180"
@@ -573,7 +573,7 @@ export default function Login() {
                           setEmail(e.target.value);
                           if (error) setError(null);
                         }}
-                        placeholder="student@university.edu"
+                        placeholder="Enter your email"
                         autoComplete="email"
                         required
                         className="w-full bg-[#0a0d14]/90 border border-[#242936] focus:border-[#76d8fb] focus:ring-1 focus:ring-[#76d8fb]/40 rounded-lg pl-10 pr-4 py-3 text-sm text-[#f4f5f7] placeholder-[#606b7d] outline-none transition-all duration-180"
@@ -683,7 +683,7 @@ export default function Login() {
                           setEmail(e.target.value);
                           if (error) setError(null);
                         }}
-                        placeholder="student@university.edu"
+                        placeholder="Enter your email"
                         autoComplete="email"
                         required
                         className="w-full bg-[#0a0d14]/90 border border-[#242936] focus:border-[#76d8fb] focus:ring-1 focus:ring-[#76d8fb]/40 rounded-lg pl-10 pr-4 py-3 text-sm text-[#f4f5f7] placeholder-[#606b7d] outline-none transition-all duration-180"

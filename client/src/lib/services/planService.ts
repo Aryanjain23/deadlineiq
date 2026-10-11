@@ -4,9 +4,15 @@ import {
   setDoc,
   deleteDoc,
   onSnapshot,
+  collection,
+  getDocs,
+  writeBatch,
+  updateDoc,
+  deleteField,
 } from "firebase/firestore";
 import {
   getDailyPlanDocRef,
+  getUserDocRef,
   getFirebaseDb,
   getFirebaseAuth,
   getFirebaseApp,
@@ -53,6 +59,27 @@ export function loadLocalPlan(uid: string, date: string): SavedDailyPlan | null 
   } catch {
     return null;
   }
+}
+
+export function removeLocalPlan(uid: string, date: string): void {
+  try {
+    const normDate = normalizeDateStr(date);
+    localStorage.removeItem(getLocalKey(uid, normDate));
+  } catch {}
+}
+
+export function clearLocalPlans(uid: string): void {
+  try {
+    const prefix = `deadlineiq_plan_${uid}`;
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (key.startsWith(prefix) || key.includes(`_plan_${uid}_`))) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach((k) => localStorage.removeItem(k));
+  } catch {}
 }
 
 /**
@@ -157,27 +184,47 @@ export async function saveDailyPlan(
   });
 
   // Attempt primary write to users/{authenticatedUid}/dailyPlans/{normDate}
-  let primarySuccess = false;
+  let savedToFirestore = false;
+
+  // Persist to user document root
+  const userDocRef = getUserDocRef(authenticatedUid);
+  if (userDocRef) {
+    try {
+      await setDoc(
+        userDocRef,
+        sanitizeForFirestore({
+          [`dailyPlan_${normDate}`]: cleanPlanDoc,
+          todayPlan: cleanPlanDoc,
+          updatedAt: new Date().toISOString(),
+        }),
+        { merge: true }
+      );
+      savedToFirestore = true;
+      saveLocalPlan(authenticatedUid, cleanPlanDoc as SavedDailyPlan);
+      console.log(`[FIRESTORE WRITE]\nfeature: dailyPlans\nuid: ${authenticatedUid}\npath: users/${authenticatedUid}\ndocumentId: dailyPlan_${normDate}\nsuccess: true`);
+    } catch (uErr) {
+      console.warn(`[FIRESTORE WRITE]\nfeature: dailyPlans user doc warning:`, uErr);
+    }
+  }
+
   try {
     await setDoc(planRef, cleanPlanDoc, { merge: true });
-    primarySuccess = true;
+    savedToFirestore = true;
     saveLocalPlan(authenticatedUid, cleanPlanDoc as SavedDailyPlan);
-    if (import.meta.env.DEV) {
-      console.log("[Firestore Save Plan] Primary write succeeded on path:", planDocPath);
-    }
+    console.log(`[FIRESTORE WRITE]\nfeature: dailyPlans\nuid: ${authenticatedUid}\npath: ${planDocPath}\ndocumentId: ${normDate}\nsuccess: true`);
   } catch (err) {
-    console.warn("[Firestore Save Plan] Primary write to dailyPlans failed with security rule error, attempting fallback to permitted settings subcollection:", err);
-    
     // Fallback: Write to users/{authenticatedUid}/settings/dailyPlan_{normDate}
-    // which is covered by the existing live /settings/{settingId} security rule
     try {
       const fallbackRef = doc(db, "users", authenticatedUid, "settings", `dailyPlan_${normDate}`);
       await setDoc(fallbackRef, cleanPlanDoc, { merge: true });
+      savedToFirestore = true;
       saveLocalPlan(authenticatedUid, cleanPlanDoc as SavedDailyPlan);
-      console.log("[Firestore Save Plan] Saved plan to cloud fallback path:", fallbackRef.path);
+      console.log(`[FIRESTORE WRITE]\nfeature: dailyPlans (fallback)\nuid: ${authenticatedUid}\npath: ${fallbackRef.path}\ndocumentId: dailyPlan_${normDate}\nsuccess: true`);
     } catch (fallbackErr) {
-      console.error("[Firestore Save Plan] Cloud fallback also failed:", fallbackErr);
-      handleFirestoreError(err, OperationType.WRITE, planDocPath, currentUser);
+      if (!savedToFirestore) {
+        console.error(`[FIRESTORE WRITE]\nfeature: dailyPlans\nuid: ${authenticatedUid}\npath: ${planDocPath}\ndocumentId: ${normDate}\nsuccess: false`, err);
+        handleFirestoreError(err, OperationType.WRITE, planDocPath, currentUser);
+      }
     }
   }
 }
@@ -191,19 +238,18 @@ export async function getDailyPlan(
   actionByUid = uid
 ): Promise<SavedDailyPlan | null> {
   const normDate = normalizeDateStr(date);
-  const local = loadLocalPlan(uid, normDate);
 
   const auth = getFirebaseAuth();
   const currentUser = auth?.currentUser;
 
   if (!currentUser || uid.startsWith("demo-")) {
-    return local;
+    return loadLocalPlan(uid, normDate);
   }
 
   const authenticatedUid = currentUser.uid;
   const db = getFirebaseDb();
   if (!db) {
-    return local;
+    return loadLocalPlan(authenticatedUid, normDate);
   }
 
   const planRef = doc(db, "users", authenticatedUid, "dailyPlans", normDate);
@@ -213,6 +259,7 @@ export async function getDailyPlan(
     if (snap.exists()) {
       const data = snap.data() as SavedDailyPlan;
       saveLocalPlan(authenticatedUid, data);
+      console.log(`[FIRESTORE READ]\nfeature: dailyPlans\nuid: ${authenticatedUid}\npath: users/${authenticatedUid}/dailyPlans/${normDate}\ndocumentsFound: 1`);
       return data;
     }
     // Check fallback settings subcollection
@@ -221,22 +268,30 @@ export async function getDailyPlan(
     if (fallbackSnap.exists()) {
       const data = fallbackSnap.data() as SavedDailyPlan;
       saveLocalPlan(authenticatedUid, data);
+      console.log(`[FIRESTORE READ]\nfeature: dailyPlans (fallback)\nuid: ${authenticatedUid}\npath: ${fallbackRef.path}\ndocumentsFound: 1`);
       return data;
     }
-    return local;
-  } catch (err) {
-    // If primary read fails, check fallback path
-    try {
-      const fallbackRef = doc(db, "users", authenticatedUid, "settings", `dailyPlan_${normDate}`);
-      const fallbackSnap = await getDoc(fallbackRef);
-      if (fallbackSnap.exists()) {
-        const data = fallbackSnap.data() as SavedDailyPlan;
-        saveLocalPlan(authenticatedUid, data);
-        return data;
+    // Check user document root
+    const userDocRef = getUserDocRef(authenticatedUid);
+    if (userDocRef) {
+      const uSnap = await getDoc(userDocRef);
+      if (uSnap.exists()) {
+        const uData = uSnap.data();
+        const candidate = uData?.[`dailyPlan_${normDate}`] || (uData?.todayPlan?.date === normDate ? uData.todayPlan : null);
+        if (candidate) {
+          saveLocalPlan(authenticatedUid, candidate);
+          console.log(`[FIRESTORE READ]\nfeature: dailyPlans (user doc)\nuid: ${authenticatedUid}\npath: users/${authenticatedUid}\ndocumentsFound: 1`);
+          return candidate as SavedDailyPlan;
+        }
       }
-    } catch {}
-    console.warn("Firestore getDailyPlan failed, falling back to local cache:", err);
-    return local;
+    }
+    // If not found in Firestore, do NOT resurrect stale plan from localStorage.
+    removeLocalPlan(authenticatedUid, normDate);
+    console.log(`[FIRESTORE READ]\nfeature: dailyPlans\nuid: ${authenticatedUid}\npath: users/${authenticatedUid}/dailyPlans/${normDate}\ndocumentsFound: 0`);
+    return null;
+  } catch (err) {
+    console.warn(`[FIRESTORE READ FAILED]\nfeature: dailyPlans\nuid: ${authenticatedUid}\npath: users/${authenticatedUid}/dailyPlans/${normDate}`, err);
+    return null;
   }
 }
 
@@ -250,25 +305,24 @@ export function subscribeToDailyPlan(
   actionByUid = uid
 ): () => void {
   const normDate = normalizeDateStr(date);
-  const local = loadLocalPlan(uid, normDate);
-  callback(local);
-
   const auth = getFirebaseAuth();
   const currentUser = auth?.currentUser;
 
   if (!currentUser || uid.startsWith("demo-")) {
+    const local = loadLocalPlan(uid, normDate);
+    callback(local);
     return () => {};
   }
 
   const authenticatedUid = currentUser.uid;
   const db = getFirebaseDb();
   if (!db) {
+    const local = loadLocalPlan(authenticatedUid, normDate);
+    callback(local);
     return () => {};
   }
 
   const planRef = doc(db, "users", authenticatedUid, "dailyPlans", normDate);
-
-  let unsubscribeFallback: (() => void) | null = null;
 
   const unsubscribePrimary = onSnapshot(
     planRef,
@@ -280,47 +334,232 @@ export function subscribeToDailyPlan(
       } else {
         // Check fallback settings path
         const fallbackRef = doc(db, "users", authenticatedUid, "settings", `dailyPlan_${normDate}`);
-        getDoc(fallbackRef).then((fSnap) => {
-          if (fSnap.exists()) {
-            const plan = fSnap.data() as SavedDailyPlan;
-            saveLocalPlan(authenticatedUid, plan);
-            callback(plan);
-          } else {
-            callback(null);
-          }
-        }).catch(() => callback(null));
-      }
-    },
-    (error) => {
-      console.warn("DailyPlan onSnapshot primary error, switching listener to fallback:", error);
-      try {
-        const fallbackRef = doc(db, "users", authenticatedUid, "settings", `dailyPlan_${normDate}`);
-        unsubscribeFallback = onSnapshot(
-          fallbackRef,
-          (fSnapshot) => {
-            if (fSnapshot.exists()) {
-              const plan = fSnapshot.data() as SavedDailyPlan;
+        getDoc(fallbackRef)
+          .then((fSnap) => {
+            if (fSnap.exists()) {
+              const plan = fSnap.data() as SavedDailyPlan;
               saveLocalPlan(authenticatedUid, plan);
               callback(plan);
             } else {
-              callback(loadLocalPlan(authenticatedUid, normDate));
+              // Check user root document
+              const userDocRef = getUserDocRef(authenticatedUid);
+              if (userDocRef) {
+                getDoc(userDocRef)
+                  .then((uSnap) => {
+                    if (uSnap.exists()) {
+                      const uData = uSnap.data();
+                      const candidate =
+                        uData?.[`dailyPlan_${normDate}`] ||
+                        (uData?.todayPlan?.date === normDate ? uData.todayPlan : null);
+                      if (candidate) {
+                        saveLocalPlan(authenticatedUid, candidate);
+                        callback(candidate as SavedDailyPlan);
+                        return;
+                      }
+                    }
+                    removeLocalPlan(authenticatedUid, normDate);
+                    callback(null);
+                  })
+                  .catch(() => {
+                    removeLocalPlan(authenticatedUid, normDate);
+                    callback(null);
+                  });
+              } else {
+                removeLocalPlan(authenticatedUid, normDate);
+                callback(null);
+              }
             }
-          },
-          () => {
-            callback(loadLocalPlan(authenticatedUid, normDate));
-          }
-        );
-      } catch {
-        callback(loadLocalPlan(authenticatedUid, normDate));
+          })
+          .catch(() => {
+            removeLocalPlan(authenticatedUid, normDate);
+            callback(null);
+          });
       }
+    },
+    (error) => {
+      console.warn("DailyPlan onSnapshot primary error:", error);
+      callback(null);
     }
   );
 
   return () => {
     unsubscribePrimary();
-    if (unsubscribeFallback) {
-      unsubscribeFallback();
-    }
   };
+}
+
+/**
+ * Permanently removes a single saved daily plan for a given date across all locations.
+ */
+export async function deleteDailyPlan(uid: string, date: string): Promise<void> {
+  const normDate = normalizeDateStr(date);
+  const auth = getFirebaseAuth();
+  const currentUser = auth?.currentUser;
+
+  if (!currentUser && (!uid || !uid.startsWith("demo-"))) {
+    throw new Error("Your session has expired. Please sign in again.");
+  }
+
+  const authenticatedUid = currentUser?.uid || uid;
+  removeLocalPlan(authenticatedUid, normDate);
+
+  if (authenticatedUid.startsWith("demo-")) {
+    return;
+  }
+
+  const db = getFirebaseDb();
+  if (!db) return;
+
+  // 1. Delete from users/{authenticatedUid}/dailyPlans/{normDate}
+  try {
+    const planRef = doc(db, "users", authenticatedUid, "dailyPlans", normDate);
+    await deleteDoc(planRef);
+    console.log(`[FIRESTORE WRITE]\nfeature: dailyPlans\nuid: ${authenticatedUid}\noperation: deleteDoc\ndocId: ${normDate}\nsuccess: true`);
+  } catch (err) {
+    console.warn("Error deleting dailyPlan doc:", err);
+  }
+
+  // 2. Delete from users/{authenticatedUid}/settings/dailyPlan_{normDate}
+  try {
+    const fallbackRef = doc(db, "users", authenticatedUid, "settings", `dailyPlan_${normDate}`);
+    await deleteDoc(fallbackRef);
+  } catch {}
+
+  // 3. Remove field from user root document
+  try {
+    const userDocRef = getUserDocRef(authenticatedUid);
+    if (userDocRef) {
+      const uSnap = await getDoc(userDocRef);
+      if (uSnap.exists()) {
+        const uData = uSnap.data();
+        const updates: Record<string, any> = {};
+        if (uData?.[`dailyPlan_${normDate}`] !== undefined) {
+          updates[`dailyPlan_${normDate}`] = deleteField();
+        }
+        if (uData?.todayPlan?.date === normDate) {
+          updates.todayPlan = deleteField();
+        }
+        if (Object.keys(updates).length > 0) {
+          await updateDoc(userDocRef, updates);
+        }
+      }
+    }
+  } catch {}
+
+  removeLocalPlan(authenticatedUid, normDate);
+}
+
+/**
+ * Deletes all saved Plan My Day documents belonging to the authenticated user's UID.
+ * Completely purges all stored plans across:
+ * - users/{authenticatedUid}/dailyPlans (all plan documents)
+ * - users/{authenticatedUid}/settings (all dailyPlan_* documents)
+ * - users/{authenticatedUid} (removes todayPlan and dailyPlan_* fields)
+ * - Local storage cache
+ */
+export async function clearAllDailyPlans(
+  uid: string
+): Promise<{ success: boolean; deletedCount: number }> {
+  const auth = getFirebaseAuth();
+  const currentUser = auth?.currentUser;
+
+  if (!currentUser && (!uid || !uid.startsWith("demo-"))) {
+    throw new Error("Your session has expired. Please sign in again to clear plans.");
+  }
+
+  const authenticatedUid = currentUser?.uid || uid;
+
+  // 1. Immediately wipe local storage cache so it cannot resurrect
+  clearLocalPlans(authenticatedUid);
+
+  if (authenticatedUid.startsWith("demo-")) {
+    return { success: true, deletedCount: 1 };
+  }
+
+  const db = getFirebaseDb();
+  if (!db) {
+    throw new Error("Firestore database service is not available.");
+  }
+
+  let totalDeleted = 0;
+
+  try {
+    // 2. Query and delete all documents in users/{authenticatedUid}/dailyPlans
+    const dailyPlansCol = collection(db, "users", authenticatedUid, "dailyPlans");
+    const dailyPlansSnap = await getDocs(dailyPlansCol);
+
+    if (!dailyPlansSnap.empty) {
+      const docs = dailyPlansSnap.docs;
+      for (let i = 0; i < docs.length; i += 400) {
+        const batch = writeBatch(db);
+        const chunk = docs.slice(i, i + 400);
+        for (const docSnap of chunk) {
+          batch.delete(docSnap.ref);
+          totalDeleted++;
+        }
+        await batch.commit();
+      }
+      console.log(`[FIRESTORE WRITE]\nfeature: dailyPlans\nuid: ${authenticatedUid}\noperation: clearAll batch delete\ncount: ${totalDeleted}\nsuccess: true`);
+    }
+
+    // 3. Query and delete all daily plan documents in users/{authenticatedUid}/settings
+    try {
+      const settingsCol = collection(db, "users", authenticatedUid, "settings");
+      const settingsSnap = await getDocs(settingsCol);
+      if (!settingsSnap.empty) {
+        const planSettingsDocs = settingsSnap.docs.filter(
+          (d) => d.id.startsWith("dailyPlan_") || d.id === "todayPlan"
+        );
+        if (planSettingsDocs.length > 0) {
+          for (let i = 0; i < planSettingsDocs.length; i += 400) {
+            const batch = writeBatch(db);
+            const chunk = planSettingsDocs.slice(i, i + 400);
+            for (const docSnap of chunk) {
+              batch.delete(docSnap.ref);
+            }
+            await batch.commit();
+          }
+          console.log(`[FIRESTORE WRITE]\nfeature: dailyPlans settings fallback\nuid: ${authenticatedUid}\noperation: clearAll batch delete\ncount: ${planSettingsDocs.length}\nsuccess: true`);
+        }
+      }
+    } catch (settingsErr) {
+      console.warn("Could not delete settings fallback plans:", settingsErr);
+    }
+
+    // 4. Clean up user root document fields (`todayPlan`, `dailyPlan_*`)
+    const userDocRef = getUserDocRef(authenticatedUid);
+    if (userDocRef) {
+      try {
+        const uSnap = await getDoc(userDocRef);
+        if (uSnap.exists()) {
+          const uData = uSnap.data();
+          const updates: Record<string, any> = {};
+          if (uData.todayPlan !== undefined) {
+            updates.todayPlan = deleteField();
+          }
+          for (const key of Object.keys(uData)) {
+            if (key.startsWith("dailyPlan_")) {
+              updates[key] = deleteField();
+            }
+          }
+          if (Object.keys(updates).length > 0) {
+            await updateDoc(userDocRef, updates);
+            console.log(`[FIRESTORE WRITE]\nfeature: user root doc dailyPlan fields\nuid: ${authenticatedUid}\noperation: deleteField\nkeys:`, Object.keys(updates));
+          }
+        }
+      } catch (uErr) {
+        console.warn("Could not remove dailyPlan fields from user document:", uErr);
+      }
+    }
+
+    // Ensure local storage is completely cleared
+    clearLocalPlans(authenticatedUid);
+
+    return { success: true, deletedCount: totalDeleted };
+  } catch (error: any) {
+    console.error(`[FIRESTORE DELETE FAILED]\nfeature: dailyPlans\nuid: ${authenticatedUid}`, error);
+    const authUser = currentUser ? { uid: currentUser.uid, email: currentUser.email } : undefined;
+    handleFirestoreError(error, OperationType.DELETE, `users/${authenticatedUid}/dailyPlans`, authUser);
+    throw error;
+  }
 }
 
