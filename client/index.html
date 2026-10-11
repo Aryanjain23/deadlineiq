@@ -20,6 +20,24 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        function registerSW() {
+          navigator.serviceWorker.register('/sw.js', { scope: '/' })
+            .then(function (reg) {
+              console.log('[PWA] Service Worker registered with scope:', reg.scope);
+            })
+            .catch(function (err) {
+              console.warn('[PWA] Service Worker registration failed:', err);
+            });
+        }
+        if (document.readyState === 'complete') {
+          registerSW();
+        } else {
+          window.addEventListener('load', registerSW);
+        }
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>
