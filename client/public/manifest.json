@@ -1,17 +1,17 @@
 {
   "id": "/",
-  "name": "DeadlineIQ",
-  "short_name": "DeadlineIQ",
-  "description": "Turn scattered academic notices, assignments and deadlines into a personalized plan that tells you exactly what to do next.",
+  "name": "Playroom Party Games",
+  "short_name": "Playroom",
+  "description": "Scan in, pass the phone, and play five party games with friends or bots.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "theme_color": "#080a10",
-  "background_color": "#080a10",
+  "theme_color": "#f7f5f0",
+  "background_color": "#f7f5f0",
   "categories": [
-    "education",
-    "productivity"
+    "games",
+    "social"
   ],
   "icons": [
     {

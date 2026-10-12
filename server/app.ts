@@ -25,10 +25,12 @@ try {
 import { aiService } from "./ai/index.js";
 import { checkAccount, registerAccount, unregisterAccount } from "./accounts.js";
 import { getAdminAuth, getAdminFirestore, getAdminStorage } from "./firebaseAdmin.js";
+import { partyRouter } from "./partyGame.js";
 
 export const app = express();
 
 app.use(express.json({ limit: "25mb" }));
+app.use("/api/party", partyRouter);
 
 // Normalize URL for Vercel rewrites or direct serverless execution
 app.use((req, _res, next) => {
