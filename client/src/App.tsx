@@ -16,11 +16,14 @@ import TermsPage from "./pages/TermsPage";
 import CookiePolicyPage from "./pages/CookiePolicyPage";
 import DeletionPage from "./pages/DeletionPage";
 import ContactPage from "./pages/ContactPage";
+import PartyGame from "./pages/PartyGame";
 
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={Home} />
+      <Route path="/" component={PartyGame} />
+      <Route path="/join/:code" component={PartyGame} />
+      <Route path="/planner" component={Home} />
       <Route path="/login" component={Login} />
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/calendar" component={CalendarPage} />
