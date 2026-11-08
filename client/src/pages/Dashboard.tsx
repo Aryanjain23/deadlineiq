@@ -30,7 +30,11 @@ import {
   ArrowRight,
   LayoutDashboard,
   User,
+  Mail,
+  RefreshCw,
 } from "lucide-react";
+import { toast } from "sonner";
+import { getGmailMeta, syncGmailTasks } from "@/lib/gmail";
 import { clearSession, getSession, isAuthenticated, type AuthUser } from "@/lib/auth";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -139,6 +143,27 @@ export default function Dashboard() {
   const [isClearPlansConfirmOpen, setIsClearPlansConfirmOpen] = useState(false);
   const [isClearingPlans, setIsClearingPlans] = useState(false);
   const [planClearedSuccess, setPlanClearedSuccess] = useState(false);
+  const [isSyncingGmail, setIsSyncingGmail] = useState(false);
+
+  const handleSyncGmailInDashboard = async () => {
+    if (!currentUser) return;
+    const userUid = currentUser.uid || (currentUser.usn ? `usn_${currentUser.usn}` : "guest");
+    setIsSyncingGmail(true);
+    try {
+      const meta = getGmailMeta(userUid);
+      const result = await syncGmailTasks(userUid, !meta.isConnected);
+      if (result.count > 0) {
+        toast.success(`Extracted ${result.count} new task(s) from Gmail inbox!`);
+      } else {
+        toast.info("Gmail inbox scanned — no new academic tasks found.");
+      }
+    } catch (err: any) {
+      console.warn("Dashboard Gmail sync error:", err);
+      toast.error(err?.message || "Failed to sync Gmail. Please check connection in Settings.");
+    } finally {
+      setIsSyncingGmail(false);
+    }
+  };
 
   // Mobile profile & settings menu state
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -914,7 +939,18 @@ export default function Dashboard() {
               <span>Plan My Day</span>
             </button>
 
-            <div className="grid grid-cols-2 gap-2.5 sm:flex sm:items-center sm:gap-3 w-full sm:w-auto">
+            <div className="grid grid-cols-3 gap-2 sm:flex sm:items-center sm:gap-3 w-full sm:w-auto">
+              <button
+                type="button"
+                onClick={handleSyncGmailInDashboard}
+                disabled={isSyncingGmail}
+                className="min-h-[44px] px-3 py-2.5 rounded-xl text-xs font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-white/[0.04] hover:bg-slate-50 dark:hover:bg-white/[0.08] border border-slate-200 dark:border-white/10 shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer btn-tactile active:scale-95 disabled:opacity-50"
+                title="Sync assignments & deadlines automatically from Gmail inbox"
+              >
+                <Mail size={14} className="text-rose-500" />
+                <span>{isSyncingGmail ? "Syncing..." : "Sync Gmail"}</span>
+              </button>
+
               <button
                 type="button"
                 onClick={() => setIsAiModalOpen(true)}

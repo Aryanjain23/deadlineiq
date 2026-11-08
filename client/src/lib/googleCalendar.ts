@@ -9,10 +9,13 @@
 import type { UnifiedCalendarItem } from "./calendar";
 import type { CalendarEvent } from "./firebase/types";
 
+import appletConfig from "../../../firebase-applet-config.json";
+
 // Minimum required scopes
 export const GOOGLE_CALENDAR_SCOPES = [
   "https://www.googleapis.com/auth/calendar.events",
   "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+  "https://www.googleapis.com/auth/gmail.readonly",
 ].join(" ");
 
 export interface GoogleCalendarListItem {
@@ -86,12 +89,17 @@ purgeLegacyPersistedTokens();
  */
 export function getGoogleOAuthClientId(): string {
   // 1. Check primary environment variable
-  const envClientId = import.meta.env.VITE_GOOGLE_CALENDAR_CLIENT_ID;
+  const envClientId = import.meta.env.VITE_GOOGLE_CALENDAR_CLIENT_ID || (import.meta.env as any).VITE_GOOGLE_CLIENT_ID;
   if (envClientId && typeof envClientId === "string" && envClientId.trim() !== "") {
     return envClientId.trim();
   }
 
-  // 2. Return empty string if not configured
+  // 2. Check applet configuration provisioned via set_up_oauth
+  if (appletConfig && (appletConfig as any).oAuthClientId) {
+    return (appletConfig as any).oAuthClientId;
+  }
+
+  // 3. Return empty string if not configured
   return "";
 }
 
@@ -217,87 +225,15 @@ export function ensureGoogleIdentityServices(): Promise<void> {
 
 /**
  * Initiates the Google Identity Services token authorization flow.
- * Shows official Google OAuth consent modal asking permission for calendar scopes.
+ * Requests unified access for both Google Calendar and Gmail in a single sign-in popup.
  */
-export async function requestGoogleCalendarAccess(): Promise<{ accessToken: string; expiresIn: number }> {
-  const clientId = getGoogleOAuthClientId();
-  if (!clientId) {
-    const err: GoogleCalendarError = {
-      type: "missing_config",
-      message: "Google Calendar Client ID is not configured (VITE_GOOGLE_CALENDAR_CLIENT_ID missing).",
-    };
-    throw err;
-  }
-
-  await ensureGoogleIdentityServices();
-
-  const google = (window as any).google;
-  if (!google?.accounts?.oauth2) {
-    const err: GoogleCalendarError = {
-      type: "network",
-      message: "Google Identity Services is not available. Please check your internet connection.",
-    };
-    throw err;
-  }
-
-  return new Promise((resolve, reject) => {
-    try {
-      const client = google.accounts.oauth2.initTokenClient({
-        client_id: clientId,
-        scope: GOOGLE_CALENDAR_SCOPES,
-        callback: (tokenResponse: any) => {
-          if (tokenResponse.error) {
-            console.error("GIS Token Client error:", tokenResponse.error);
-            if (tokenResponse.error === "access_denied") {
-              const err: GoogleCalendarError = {
-                type: "denied",
-                message: "Access to Google Calendar was denied or cancelled.",
-              };
-              reject(err);
-            } else {
-              const err: GoogleCalendarError = {
-                type: "unknown",
-                message: `Google authorization failed: ${tokenResponse.error_description || tokenResponse.error}`,
-              };
-              reject(err);
-            }
-            return;
-          }
-
-          if (!tokenResponse.access_token) {
-            const err: GoogleCalendarError = {
-              type: "unknown",
-              message: "No access token was returned by Google Identity Services.",
-            };
-            reject(err);
-            return;
-          }
-
-          const expiresIn = Number(tokenResponse.expires_in) || 3599;
-          setGoogleAccessToken(tokenResponse.access_token, expiresIn);
-          resolve({ accessToken: tokenResponse.access_token, expiresIn });
-        },
-        error_callback: (nonOAuthError: any) => {
-          console.warn("GIS non-OAuth error:", nonOAuthError);
-          const err: GoogleCalendarError = {
-            type: "denied",
-            message: nonOAuthError.message || "Google Calendar authorization popup closed or cancelled.",
-          };
-          reject(err);
-        },
-      });
-
-      // Prompt user with GIS popup consent
-      client.requestAccessToken({ prompt: "" });
-    } catch (error: any) {
-      console.error("Failed to initialize GIS token client:", error);
-      const err: GoogleCalendarError = {
-        type: "unknown",
-        message: error.message || "Could not launch Google Calendar authorization flow.",
-      };
-      reject(err);
-    }
-  });
+export async function requestGoogleCalendarAccess(userUid = "default"): Promise<{ accessToken: string; expiresIn: number }> {
+  const { requestUnifiedGoogleAccess } = await import("./googleAuth");
+  const result = await requestUnifiedGoogleAccess(userUid);
+  return {
+    accessToken: result.accessToken,
+    expiresIn: 3599,
+  };
 }
 
 /**
