@@ -318,12 +318,9 @@ export async function syncGmailTasks(
 
 /**
  * Disconnects Gmail integration and clears stored tokens / metadata.
+ * Revokes Google token and deletes server refresh token without removing deadlines.
  */
-export function disconnectGmail(uid: string): void {
-  clearGmailAccessToken();
-  const cleanUid = (uid || "default").trim().replace(/[^a-zA-Z0-9_\-]/g, "_");
-  const key = `deadlineiq_gmail_meta_${cleanUid}`;
-  try {
-    localStorage.removeItem(key);
-  } catch {}
+export async function disconnectGmail(uid: string): Promise<void> {
+  const { disconnectUnifiedGoogleAccess } = await import("./googleAuth");
+  await disconnectUnifiedGoogleAccess(uid, "gmail");
 }

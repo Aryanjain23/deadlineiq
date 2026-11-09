@@ -26,6 +26,7 @@ import { aiService } from "./ai/index.js";
 import { triageAndExtractEmails } from "./ai/gmail-triage.js";
 import { checkAccount, registerAccount, unregisterAccount } from "./accounts.js";
 import { getAdminAuth, getAdminFirestore, getAdminStorage } from "./firebaseAdmin.js";
+import { saveServerOAuthToken, getServerOAuthToken, deleteServerOAuthToken } from "./oauthStore.js";
 
 export const app = express();
 
@@ -187,6 +188,186 @@ app.post("/api/gmail/triage-extract", async (req, res) => {
     console.error("Gmail triage extraction route error:", error);
     res.status(500).json({ success: false, error: "Triage process failed." });
   }
+});
+
+// Google OAuth Authorization Code Exchange Endpoint (Server-Side Offline Refresh Token)
+app.post("/api/google/oauth/exchange-code", async (req, res) => {
+  try {
+    const { code, userUid, service = "unified" } = req.body || {};
+    if (!code || !userUid) {
+      return res.status(400).json({ error: "Authorization code and userUid are required." });
+    }
+
+    // Resolve OAuth Client ID
+    let clientId = process.env.VITE_GOOGLE_CALENDAR_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || "";
+    if (!clientId) {
+      try {
+        const cfgPath = path.resolve(process.cwd(), "firebase-applet-config.json");
+        if (fs.existsSync(cfgPath)) {
+          const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf-8"));
+          if (cfg.oAuthClientId) clientId = cfg.oAuthClientId;
+        }
+      } catch {}
+    }
+
+    if (!clientId) {
+      return res.status(500).json({ error: "Google OAuth Client ID is missing on server." });
+    }
+
+    // Exchange authorization code for tokens
+    const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        code,
+        client_id: clientId,
+        grant_type: "authorization_code",
+        redirect_uri: "postmessage",
+      }).toString(),
+    });
+
+    const tokenData = await tokenRes.json();
+    if (!tokenRes.ok || tokenData.error) {
+      console.warn("Google code exchange error:", tokenData);
+      return res.status(400).json({ error: tokenData.error_description || tokenData.error || "Failed to exchange authorization code." });
+    }
+
+    const { access_token, refresh_token, expires_in, scope } = tokenData;
+
+    // Fetch user profile email
+    let connectedEmail: string | null = null;
+    try {
+      const profileRes = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
+        headers: { Authorization: `Bearer ${access_token}` },
+      });
+      if (profileRes.ok) {
+        const p = await profileRes.json();
+        connectedEmail = p.email || null;
+      }
+    } catch {}
+
+    // Store refresh token securely on server
+    if (refresh_token) {
+      saveServerOAuthToken({
+        userUid,
+        service: service as any,
+        refreshToken: refresh_token,
+        connectedEmail,
+        scopes: typeof scope === "string" ? scope.split(" ") : [],
+        updatedAt: new Date().toISOString(),
+      });
+    }
+
+    res.json({
+      success: true,
+      access_token,
+      expires_in: expires_in || 3599,
+      connectedEmail,
+    });
+  } catch (error: any) {
+    console.error("OAuth exchange endpoint error:", error);
+    res.status(500).json({ error: "Failed to process Google authorization." });
+  }
+});
+
+// Google OAuth Silent Token Refresh Endpoint
+app.post("/api/google/oauth/refresh-token", async (req, res) => {
+  try {
+    const { userUid, service = "unified" } = req.body || {};
+    if (!userUid) {
+      return res.status(400).json({ error: "User UID is required." });
+    }
+
+    const stored = getServerOAuthToken(userUid, service as any);
+    if (!stored || !stored.refreshToken) {
+      return res.status(401).json({ success: false, error: "reconnect_required", message: "No refresh token stored. Reconnection required." });
+    }
+
+    let clientId = process.env.VITE_GOOGLE_CALENDAR_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || "";
+    if (!clientId) {
+      try {
+        const cfgPath = path.resolve(process.cwd(), "firebase-applet-config.json");
+        if (fs.existsSync(cfgPath)) {
+          const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf-8"));
+          if (cfg.oAuthClientId) clientId = cfg.oAuthClientId;
+        }
+      } catch {}
+    }
+
+    const refreshRes = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: clientId,
+        refresh_token: stored.refreshToken,
+        grant_type: "refresh_token",
+      }).toString(),
+    });
+
+    const refreshData = await refreshRes.json();
+    if (!refreshRes.ok || refreshData.error) {
+      console.warn(`Refresh token failed for ${userUid} (${service}):`, refreshData);
+      if (refreshData.error === "invalid_grant" || refreshData.error === "unauthorized_client") {
+        deleteServerOAuthToken(userUid, service as any);
+        return res.status(401).json({ success: false, error: "reconnect_required", message: "Google connection expired or was revoked. Please reconnect." });
+      }
+      return res.status(400).json({ error: refreshData.error_description || "Token refresh failed." });
+    }
+
+    res.json({
+      success: true,
+      access_token: refreshData.access_token,
+      expires_in: refreshData.expires_in || 3599,
+      connectedEmail: stored.connectedEmail,
+    });
+  } catch (error: any) {
+    console.error("OAuth token refresh endpoint error:", error);
+    res.status(500).json({ error: "Token refresh request failed." });
+  }
+});
+
+// Google OAuth Revoke & Disconnect Endpoint
+app.post("/api/google/oauth/revoke", async (req, res) => {
+  try {
+    const { userUid, service = "all" } = req.body || {};
+    if (!userUid) {
+      return res.status(400).json({ error: "User UID is required." });
+    }
+
+    const stored = getServerOAuthToken(userUid, service === "all" ? "unified" : service as any);
+    if (stored?.refreshToken) {
+      try {
+        await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(stored.refreshToken)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        });
+      } catch (err) {
+        console.warn("Revoke fetch notice:", err);
+      }
+    }
+
+    deleteServerOAuthToken(userUid, service as any);
+    res.json({ success: true, message: `Disconnected ${service} integration.` });
+  } catch (error: any) {
+    console.error("OAuth revoke endpoint error:", error);
+    res.status(500).json({ error: "Revoke request failed." });
+  }
+});
+
+// Server OAuth Connection Status Endpoint
+app.get("/api/google/oauth/status", (req, res) => {
+  const uid = req.query.uid as string;
+  if (!uid) return res.status(400).json({ error: "UID required" });
+
+  const gmail = getServerOAuthToken(uid, "gmail") || getServerOAuthToken(uid, "unified");
+  const calendar = getServerOAuthToken(uid, "calendar") || getServerOAuthToken(uid, "unified");
+
+  res.json({
+    gmailConnected: Boolean(gmail),
+    gmailEmail: gmail?.connectedEmail || null,
+    calendarConnected: Boolean(calendar),
+    calendarEmail: calendar?.connectedEmail || null,
+  });
 });
 
 // Unified AI Timetable Extraction API

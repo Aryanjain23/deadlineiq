@@ -939,18 +939,7 @@ export default function Dashboard() {
               <span>Plan My Day</span>
             </button>
 
-            <div className="grid grid-cols-3 gap-2 sm:flex sm:items-center sm:gap-3 w-full sm:w-auto">
-              <button
-                type="button"
-                onClick={handleSyncGmailInDashboard}
-                disabled={isSyncingGmail}
-                className="min-h-[44px] px-3 py-2.5 rounded-xl text-xs font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-white/[0.04] hover:bg-slate-50 dark:hover:bg-white/[0.08] border border-slate-200 dark:border-white/10 shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer btn-tactile active:scale-95 disabled:opacity-50"
-                title="Sync assignments & deadlines automatically from Gmail inbox"
-              >
-                <Mail size={14} className="text-rose-500" />
-                <span>{isSyncingGmail ? "Syncing..." : "Sync Gmail"}</span>
-              </button>
-
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-3 w-full sm:w-auto">
               <button
                 type="button"
                 onClick={() => setIsAiModalOpen(true)}

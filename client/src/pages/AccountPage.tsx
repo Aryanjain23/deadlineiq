@@ -62,6 +62,7 @@ import {
   type NotificationPermissionStatus,
 } from "@/lib/notifications";
 import ThemeToggle from "@/components/ThemeToggle";
+import GmailReviewSettingsSection from "@/components/GmailReviewSettingsSection";
 
 export default function AccountPage() {
   const [, setLocation] = useLocation();
@@ -1115,74 +1116,6 @@ export default function AccountPage() {
               </div>
             </div>
 
-            {/* Gmail Task Sync Card */}
-            <div className="p-3.5 sm:p-4 rounded-xl border border-slate-200 dark:border-border bg-slate-50/50 dark:bg-[#0c101a] flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3.5 sm:gap-4 transition-all">
-              <div className="flex items-start gap-3 min-w-0 flex-1">
-                <div className="w-10 h-10 rounded-xl bg-white dark:bg-[#151c2d] border border-slate-200 dark:border-white/10 flex items-center justify-center flex-shrink-0 shadow-xs">
-                  <Mail size={20} className="text-rose-500" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h4 className="text-sm font-semibold text-slate-900 dark:text-white truncate">Gmail Task Sync</h4>
-                    {gmailMeta.isConnected ? (
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 whitespace-nowrap">
-                        Connected
-                      </span>
-                    ) : (
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-slate-200 dark:bg-white/10 text-slate-600 dark:text-slate-400 whitespace-nowrap">
-                        Disconnected
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-[11px] text-slate-500 dark:text-text-muted mt-1 leading-relaxed break-words">
-                    {gmailMeta.isConnected
-                      ? `Connected to ${gmailMeta.connectedEmail || "Gmail"}. Automatically scans inbox for assignment notices & due dates.`
-                      : "Connect Gmail to automatically extract tasks, assignment notices & exam dates from your inbox."}
-                  </p>
-                  {gmailStatusMessage && (
-                    <p className="text-[10px] font-mono text-emerald-600 dark:text-[#76d8fb] mt-1.5 flex items-center gap-1 font-medium">
-                      <CheckCircle2 size={11} /> {gmailStatusMessage}
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex sm:flex-col items-center sm:items-end justify-end gap-2 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-200/60 dark:border-white/5">
-                {gmailMeta.isConnected && (
-                  <>
-                    <Link
-                      href="/gmail-review"
-                      className="px-3 py-1.5 rounded-lg text-xs font-medium border border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-500/10 flex items-center gap-1.5 transition-all cursor-pointer"
-                    >
-                      <Mail size={12} />
-                      <span>Review Pending Emails</span>
-                    </Link>
-                    <button
-                      type="button"
-                      onClick={handleSyncGmail}
-                      disabled={isSyncingGmail}
-                      className="px-3 py-1.5 rounded-lg text-xs font-medium bg-rose-600 hover:bg-rose-500 text-white shadow-xs flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
-                    >
-                      <RefreshCw size={12} className={isSyncingGmail ? "animate-spin" : ""} />
-                      <span>{isSyncingGmail ? "Scanning..." : "Sync Inbox"}</span>
-                    </button>
-                  </>
-                )}
-                <button
-                  type="button"
-                  onClick={handleToggleGmail}
-                  disabled={isSyncingGmail}
-                  className={`w-full sm:w-auto text-center px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer flex-shrink-0 ${
-                    gmailMeta.isConnected
-                      ? "border border-rose-300 dark:border-rose-500/30 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10"
-                      : "bg-rose-600 hover:bg-rose-500 text-white shadow-xs"
-                  }`}
-                >
-                  {gmailMeta.isConnected ? "Disconnect" : "Connect Gmail"}
-                </button>
-              </div>
-            </div>
-
             {/* Firebase Cloud Sync Card */}
             <div className="p-3.5 sm:p-4 rounded-xl border border-slate-200 dark:border-border bg-slate-50/50 dark:bg-[#0c101a] flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3.5 sm:gap-4 transition-all">
               <div className="flex items-start gap-3 min-w-0 flex-1">
@@ -1205,6 +1138,9 @@ export default function AccountPage() {
 
           </div>
         </section>
+
+        {/* Gmail Review & Sync Section in Settings */}
+        <GmailReviewSettingsSection userUid={userUid} />
 
         {/* 6. LEGAL & PRIVACY SECTION */}
         <section className="rounded-2xl border border-slate-200/80 dark:border-border bg-white dark:bg-surface/90 backdrop-blur-md p-6 sm:p-8 shadow-xs">

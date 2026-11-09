@@ -109,6 +109,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // Periodic silent ID token refresh every 10 minutes to maintain active session
+  useEffect(() => {
+    if (!user?.isFirebaseUser) return;
+    const auth = getFirebaseAuth();
+    if (!auth) return;
+
+    const intervalId = setInterval(async () => {
+      try {
+        const currentUser = auth.currentUser;
+        if (currentUser) {
+          await currentUser.getIdToken(true);
+        }
+      } catch (err) {
+        console.warn("Silent token refresh error:", err);
+      }
+    }, 10 * 60 * 1000);
+
+    return () => clearInterval(intervalId);
+  }, [user?.isFirebaseUser]);
+
   const loginWithDemo = useCallback((usn: string, pass: string): boolean => {
     const cleanUsn = usn.trim();
     if (

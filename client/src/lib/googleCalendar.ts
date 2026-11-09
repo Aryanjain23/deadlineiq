@@ -238,36 +238,11 @@ export async function requestGoogleCalendarAccess(userUid = "default"): Promise<
 
 /**
  * Revokes Google Calendar access and cleans up state safely.
- * Does NOT delete any DeadlineIQ native events.
+ * Does NOT delete any DeadlineIQ native events or deadlines.
  */
 export async function disconnectGoogleCalendar(uid: string): Promise<void> {
-  const token = cachedAccessToken;
-  clearGoogleAccessToken();
-
-  // Reset metadata
-  const meta = getGoogleCalendarMeta(uid);
-  meta.isConnected = false;
-  meta.connectedEmail = undefined;
-  meta.lastSyncTime = undefined;
-  saveGoogleCalendarMeta(uid, meta);
-
-  // Attempt Google token revocation if available
-  if (token) {
-    try {
-      if (typeof window !== "undefined" && (window as any).google?.accounts?.oauth2?.revoke) {
-        (window as any).google.accounts.oauth2.revoke(token, () => {
-          // Token revoked callback
-        });
-      } else {
-        await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(token)}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        }).catch(() => {});
-      }
-    } catch (err) {
-      console.warn("Google token revocation notice:", err);
-    }
-  }
+  const { disconnectUnifiedGoogleAccess } = await import("./googleAuth");
+  await disconnectUnifiedGoogleAccess(uid, "calendar");
 }
 
 /**
