@@ -63,6 +63,7 @@ import {
 } from "@/lib/notifications";
 import ThemeToggle from "@/components/ThemeToggle";
 import GmailReviewSettingsSection from "@/components/GmailReviewSettingsSection";
+import GoogleSetupCheckCard from "@/components/GoogleSetupCheckCard";
 
 export default function AccountPage() {
   const [, setLocation] = useLocation();
@@ -1058,6 +1059,9 @@ export default function AccountPage() {
           </div>
 
         </section>
+
+        {/* GOOGLE SETUP CHECK PANEL */}
+        <GoogleSetupCheckCard userUid={userUid} />
 
         {/* 5. CONNECTED INTEGRATIONS */}
         <section className="rounded-2xl border border-slate-200/80 dark:border-border bg-white dark:bg-surface/90 backdrop-blur-md p-6 sm:p-8 shadow-xs">

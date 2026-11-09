@@ -141,6 +141,58 @@ export async function requestUnifiedGoogleAccess(
 
   return new Promise((resolve, reject) => {
     try {
+      const runTokenClientFallback = () => {
+        try {
+          const tokenClient = google.accounts.oauth2.initTokenClient({
+            client_id: clientId,
+            scope: UNIFIED_GOOGLE_SCOPES,
+            callback: async (tokenResponse: any) => {
+              if (tokenResponse.error) {
+                reject(new Error(tokenResponse.error_description || tokenResponse.error || "Google authorization failed."));
+                return;
+              }
+
+              const accessToken = tokenResponse.access_token;
+              const expiresIn = Number(tokenResponse.expires_in) || 3599;
+
+              setGoogleAccessToken(accessToken, expiresIn);
+              setGmailAccessToken(accessToken, expiresIn);
+
+              let connectedEmail = "Primary Account";
+              try {
+                const profileRes = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
+                  headers: { Authorization: `Bearer ${accessToken}` },
+                });
+                if (profileRes.ok) {
+                  const pData = await profileRes.json();
+                  if (pData.email) connectedEmail = pData.email;
+                }
+              } catch {}
+
+              const now = new Date().toISOString();
+              const calMeta = getGoogleCalendarMeta(userUid);
+              const updatedCalMeta = { ...calMeta, isConnected: true, connectedEmail, lastSyncTime: now };
+              saveGoogleCalendarMeta(userUid, updatedCalMeta);
+
+              const gmMeta = getGmailMeta(userUid);
+              const updatedGmMeta = { ...gmMeta, isConnected: true, connectedEmail, lastSyncTime: now };
+              saveGmailMeta(userUid, updatedGmMeta);
+
+              resolve({
+                accessToken,
+                connectedEmail,
+                calendarMeta: updatedCalMeta,
+                gmailMeta: updatedGmMeta,
+              });
+            },
+          });
+
+          tokenClient.requestAccessToken({ prompt: "consent" });
+        } catch (tokenErr: any) {
+          reject(new Error(tokenErr?.message || "Failed to initialize Google token authorization popup."));
+        }
+      };
+
       // 1. Try Authorization Code Flow (initCodeClient) for offline refresh tokens
       if (google.accounts.oauth2.initCodeClient) {
         const codeClient = google.accounts.oauth2.initCodeClient({
@@ -168,7 +220,16 @@ export async function requestUnifiedGoogleAccess(
 
               if (!exRes.ok) {
                 const errData = await exRes.json().catch(() => ({}));
-                throw new Error(errData.error || `Server code exchange failed HTTP ${exRes.status}`);
+                const rawMsg = errData.error || "";
+
+                // If secret is not yet set on server, seamlessly fall back to token client for this session
+                if (rawMsg.includes("GOOGLE_CLIENT_SECRET is missing")) {
+                  console.warn("Server is missing GOOGLE_CLIENT_SECRET; falling back to direct client authorization...");
+                  runTokenClientFallback();
+                  return;
+                }
+
+                throw new Error(rawMsg || `Server code exchange failed HTTP ${exRes.status}`);
               }
 
               const exData = await exRes.json();
@@ -216,51 +277,7 @@ export async function requestUnifiedGoogleAccess(
       }
 
       // 2. Fallback to initTokenClient if initCodeClient is unavailable
-      const tokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: clientId,
-        scope: UNIFIED_GOOGLE_SCOPES,
-        callback: async (tokenResponse: any) => {
-          if (tokenResponse.error) {
-            reject(new Error(tokenResponse.error_description || tokenResponse.error || "Google authorization failed."));
-            return;
-          }
-
-          const accessToken = tokenResponse.access_token;
-          const expiresIn = Number(tokenResponse.expires_in) || 3599;
-
-          setGoogleAccessToken(accessToken, expiresIn);
-          setGmailAccessToken(accessToken, expiresIn);
-
-          let connectedEmail = "Primary Account";
-          try {
-            const profileRes = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
-              headers: { Authorization: `Bearer ${accessToken}` },
-            });
-            if (profileRes.ok) {
-              const pData = await profileRes.json();
-              if (pData.email) connectedEmail = pData.email;
-            }
-          } catch {}
-
-          const now = new Date().toISOString();
-          const calMeta = getGoogleCalendarMeta(userUid);
-          const updatedCalMeta = { ...calMeta, isConnected: true, connectedEmail, lastSyncTime: now };
-          saveGoogleCalendarMeta(userUid, updatedCalMeta);
-
-          const gmMeta = getGmailMeta(userUid);
-          const updatedGmMeta = { ...gmMeta, isConnected: true, connectedEmail, lastSyncTime: now };
-          saveGmailMeta(userUid, updatedGmMeta);
-
-          resolve({
-            accessToken,
-            connectedEmail,
-            calendarMeta: updatedCalMeta,
-            gmailMeta: updatedGmMeta,
-          });
-        },
-      });
-
-      tokenClient.requestAccessToken({ prompt: "consent" });
+      runTokenClientFallback();
     } catch (err: any) {
       reject(new Error(err?.message || "Failed to initialize Google authorization popup."));
     }

@@ -91,13 +91,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(authUser);
         setSession(authUser);
       } else {
-        // Fall back to local session only if it's a demo account
+        // Only clear session if explicitly logged out (handled in logout() / deleteAccount())
+        // Otherwise, preserve the persistent local session from localStorage so background sleep or
+        // transient network drops do not log the user out after ~20 minutes.
         const localSession = getSession();
-        if (localSession && !localSession.isFirebaseUser) {
+        if (localSession) {
           setUser(localSession);
         } else {
           setUser(null);
-          clearSession();
         }
       }
       setIsLoading(false);
@@ -109,7 +110,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  // Periodic silent ID token refresh every 10 minutes to maintain active session
+  // Periodic silent ID token refresh every 10 minutes to maintain persistent active session
   useEffect(() => {
     if (!user?.isFirebaseUser) return;
     const auth = getFirebaseAuth();
@@ -119,10 +120,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const currentUser = auth.currentUser;
         if (currentUser) {
-          await currentUser.getIdToken(true);
+          // getIdToken(false) silently returns active token or refreshes when near expiry
+          await currentUser.getIdToken(false);
         }
       } catch (err) {
-        console.warn("Silent token refresh error:", err);
+        console.warn("Silent token refresh note (session preserved):", err);
       }
     }, 10 * 60 * 1000);
 

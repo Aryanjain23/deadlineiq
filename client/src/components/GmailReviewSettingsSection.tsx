@@ -126,7 +126,13 @@ export default function GmailReviewSettingsSection({ userUid }: GmailReviewSetti
         setItems(getReviewInbox(userUid));
         setSyncStatsText(stats.feedback);
       } catch (err: any) {
-        setErrorMessage(err?.message || "Failed to connect Gmail.");
+        const rawMsg = err?.message || "";
+        const friendly = rawMsg.includes("GOOGLE_CLIENT_SECRET")
+          ? "Google credentials need setup. See the Google Setup Check panel above for instructions."
+          : rawMsg.includes("popup") || rawMsg.includes("cancelled")
+          ? "Authorization was cancelled. Click Connect to try again."
+          : rawMsg || "Failed to connect Gmail.";
+        setErrorMessage(friendly);
       } finally {
         setIsSyncing(false);
       }
@@ -144,7 +150,11 @@ export default function GmailReviewSettingsSection({ userUid }: GmailReviewSetti
       setItems(getReviewInbox(userUid));
       setSyncStatsText(stats.feedback);
     } catch (err: any) {
-      setErrorMessage(err?.message || "Gmail sync failed. Click Connect to re-authorize.");
+      const rawMsg = err?.message || "";
+      const friendly = rawMsg.includes("reconnect_required") || rawMsg.includes("expired")
+        ? "Gmail connection session expired. Please click Reconnect."
+        : rawMsg || "Gmail sync failed. Click Recheck or Connect to re-authorize.";
+      setErrorMessage(friendly);
     } finally {
       setIsSyncing(false);
     }
@@ -459,15 +469,30 @@ export default function GmailReviewSettingsSection({ userUid }: GmailReviewSetti
             initial={{ opacity: 0, y: -6 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -6 }}
-            className="p-3 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-800 dark:text-rose-300 text-xs flex items-center justify-between gap-2"
+            className="p-3.5 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-800 dark:text-rose-300 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
           >
             <div className="flex items-center gap-2">
-              <AlertCircle size={15} className="flex-shrink-0 text-rose-500" />
+              <AlertCircle size={16} className="flex-shrink-0 text-rose-500" />
               <span>{errorMessage}</span>
             </div>
-            <button type="button" onClick={() => setErrorMessage(null)} className="cursor-pointer text-rose-500">
-              <X size={14} />
-            </button>
+            <div className="flex items-center gap-2 self-end sm:self-auto flex-shrink-0">
+              <button
+                type="button"
+                onClick={handleSyncNow}
+                disabled={isSyncing}
+                className="px-2.5 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/30 text-rose-700 dark:text-rose-200 text-[11px] font-medium transition-colors cursor-pointer"
+              >
+                Retry Sync
+              </button>
+              <button
+                type="button"
+                onClick={() => setErrorMessage(null)}
+                className="p-1 rounded-lg hover:bg-rose-500/20 text-rose-600 dark:text-rose-300 cursor-pointer"
+                title="Dismiss"
+              >
+                <X size={14} />
+              </button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

@@ -8,6 +8,8 @@ export interface StoredOAuthToken {
   connectedEmail: string | null;
   scopes: string[];
   updatedAt: string;
+  lastSyncTime?: string;
+  lastError?: string | null;
 }
 
 const TOKENS_FILE_PATH = path.resolve(process.cwd(), "data", "oauth-tokens.json");
@@ -69,4 +71,23 @@ export function deleteServerOAuthToken(userUid: string, service: "gmail" | "cale
     delete store[`${userUid}_${service}`];
   }
   saveTokensStore(store);
+}
+
+export function updateServerOAuthMetadata(
+  userUid: string,
+  service: "gmail" | "calendar" | "unified",
+  updates: { lastSyncTime?: string; lastError?: string | null }
+): void {
+  const store = loadTokensStore();
+  const key = `${userUid}_${service}`;
+  if (store[key]) {
+    store[key] = { ...store[key], ...updates, updatedAt: new Date().toISOString() };
+    saveTokensStore(store);
+    return;
+  }
+  const unifiedKey = `${userUid}_unified`;
+  if (store[unifiedKey]) {
+    store[unifiedKey] = { ...store[unifiedKey], ...updates, updatedAt: new Date().toISOString() };
+    saveTokensStore(store);
+  }
 }

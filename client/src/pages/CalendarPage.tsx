@@ -62,6 +62,7 @@ import {
   type GoogleSyncStatus,
   type GoogleCalendarError,
 } from "@/lib/googleCalendar";
+import { getValidGoogleAccessToken } from "@/lib/googleAuth";
 import EventModal from "@/components/EventModal";
 import EventDetailsModal from "@/components/EventDetailsModal";
 import TimetableModal from "@/components/TimetableModal";
@@ -185,25 +186,45 @@ export default function CalendarPage() {
   // Auto-sync Google Calendar on calendar mount or navigated month change
   useEffect(() => {
     if (!currentUser || !googleMeta.isConnected) return;
-    const token = getGoogleAccessToken();
-    if (token) {
-      syncGoogleCalendarEvents(token, googleMeta, currentDate);
-    } else {
-      // In-memory token absent or expired (e.g. page refreshed)
-      setGoogleSyncStatus("expired");
-      setGoogleError({
-        type: "expired",
-        message: "Google Calendar authorization session ended. Click to reconnect.",
-      });
+    let isCancelled = false;
+
+    async function ensureSync() {
+      try {
+        const token = await getValidGoogleAccessToken(userUid, "calendar");
+        if (isCancelled) return;
+        if (token) {
+          syncGoogleCalendarEvents(token, googleMeta, currentDate);
+        } else {
+          // Token absent and refresh not possible without user interaction
+          setGoogleSyncStatus("expired");
+          setGoogleError({
+            type: "expired",
+            message: "Google Calendar authorization session ended. Click to reconnect.",
+          });
+        }
+      } catch (err: any) {
+        if (!isCancelled) {
+          setGoogleSyncStatus("error");
+          setGoogleError({
+            type: "network",
+            message: "Could not sync Google Calendar. Local events and deadlines are unaffected.",
+          });
+        }
+      }
     }
-  }, [googleMeta.isConnected, currentDate.getMonth(), currentDate.getFullYear(), currentUser, syncGoogleCalendarEvents]);
+
+    ensureSync();
+    return () => {
+      isCancelled = true;
+    };
+  }, [googleMeta.isConnected, currentDate.getMonth(), currentDate.getFullYear(), currentUser, userUid, syncGoogleCalendarEvents]);
 
   // Connect Google Calendar flow
   const handleConnectGoogleCalendar = async () => {
     setGoogleSyncStatus("connecting");
     setGoogleError(null);
     try {
-      const { accessToken } = await requestGoogleCalendarAccess();
+      const { accessToken } = await requestGoogleCalendarAccess(userUid);
       let calendars = [];
       try {
         calendars = await fetchGoogleCalendarList(accessToken);
@@ -225,8 +246,18 @@ export default function CalendarPage() {
       setIsGoogleModalOpen(false);
     } catch (err: any) {
       console.warn("Google Calendar connect error:", err);
+      const rawMsg = err?.message || "";
+      const friendlyMessage = rawMsg.includes("GOOGLE_CLIENT_SECRET")
+        ? "Google credentials require configuration. Check Settings -> Google Setup Check to view setup status."
+        : rawMsg.includes("popup") || rawMsg.includes("cancelled")
+        ? "Google authorization was cancelled. Click Retry to connect."
+        : rawMsg || "Google Calendar sync paused.";
+
       setGoogleSyncStatus(err.type === "denied" ? "idle" : "error");
-      setGoogleError(err);
+      setGoogleError({
+        type: err.type || "unknown",
+        message: friendlyMessage,
+      });
     }
   };
 
@@ -643,25 +674,35 @@ export default function CalendarPage() {
       {/* Main Content Area */}
       <main className="relative z-10 flex-1 max-w-[1376px] w-full mx-auto px-4 sm:px-8 pt-6 pb-28 md:py-6 space-y-5">
         
-        {/* Non-intrusive Google Calendar Status / Error Banner */}
+        {/* Friendly Google Calendar Status / Error Banner */}
         {googleError && googleMeta.isConnected && (
-          <div className="flex items-center justify-between p-3.5 rounded-2xl border border-amber-500/30 bg-amber-500/10 text-amber-200 text-xs font-mono backdrop-blur-xl">
-            <div className="flex items-center gap-2.5">
-              <AlertTriangle size={15} className="text-amber-400 flex-shrink-0" />
-              <span>{googleError.message}</span>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl border border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-200 text-xs backdrop-blur-xl">
+            <div className="flex items-start sm:items-center gap-2.5">
+              <AlertTriangle size={16} className="text-amber-500 dark:text-amber-400 flex-shrink-0 mt-0.5 sm:mt-0" />
+              <div>
+                <span className="font-medium">{googleError.message}</span>
+                <span className="text-[11px] text-amber-700/80 dark:text-amber-300/70 ml-1.5">
+                  (Fix: View{" "}
+                  <Link href="/account" className="underline hover:text-amber-900 dark:hover:text-white cursor-pointer">
+                    Google Setup Check in Settings
+                  </Link>
+                  )
+                </span>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 self-end sm:self-auto flex-shrink-0">
               <button
                 type="button"
                 onClick={handleConnectGoogleCalendar}
-                className="px-3 py-1 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-100 text-xs font-mono transition-colors cursor-pointer"
+                className="px-3 py-1 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-900 dark:text-amber-100 text-xs font-medium transition-colors cursor-pointer"
               >
-                {googleError.type === "expired" ? "Reconnect" : "Retry Sync"}
+                {googleError.type === "expired" ? "Reconnect" : "Retry"}
               </button>
               <button
                 type="button"
                 onClick={() => setGoogleError(null)}
-                className="p-1 rounded-lg hover:bg-white/10 text-amber-300 hover:text-white transition-colors cursor-pointer"
+                className="p-1 rounded-lg hover:bg-black/10 dark:hover:bg-white/10 text-amber-700 dark:text-amber-300 transition-colors cursor-pointer"
+                title="Dismiss"
               >
                 <X size={14} />
               </button>
