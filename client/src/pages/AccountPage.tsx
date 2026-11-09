@@ -1149,15 +1149,24 @@ export default function AccountPage() {
 
               <div className="flex sm:flex-col items-center sm:items-end justify-end gap-2 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-200/60 dark:border-white/5">
                 {gmailMeta.isConnected && (
-                  <button
-                    type="button"
-                    onClick={handleSyncGmail}
-                    disabled={isSyncingGmail}
-                    className="px-3 py-1.5 rounded-lg text-xs font-medium bg-rose-600 hover:bg-rose-500 text-white shadow-xs flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
-                  >
-                    <RefreshCw size={12} className={isSyncingGmail ? "animate-spin" : ""} />
-                    <span>{isSyncingGmail ? "Scanning..." : "Sync Inbox"}</span>
-                  </button>
+                  <>
+                    <Link
+                      href="/gmail-review"
+                      className="px-3 py-1.5 rounded-lg text-xs font-medium border border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-500/10 flex items-center gap-1.5 transition-all cursor-pointer"
+                    >
+                      <Mail size={12} />
+                      <span>Review Pending Emails</span>
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={handleSyncGmail}
+                      disabled={isSyncingGmail}
+                      className="px-3 py-1.5 rounded-lg text-xs font-medium bg-rose-600 hover:bg-rose-500 text-white shadow-xs flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      <RefreshCw size={12} className={isSyncingGmail ? "animate-spin" : ""} />
+                      <span>{isSyncingGmail ? "Scanning..." : "Sync Inbox"}</span>
+                    </button>
+                  </>
                 )}
                 <button
                   type="button"

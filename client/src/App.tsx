@@ -11,6 +11,7 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import CalendarPage from "./pages/CalendarPage";
 import AccountPage from "./pages/AccountPage";
+import GmailReviewPage from "./pages/GmailReviewPage";
 import PrivacyPage from "./pages/PrivacyPage";
 import TermsPage from "./pages/TermsPage";
 import CookiePolicyPage from "./pages/CookiePolicyPage";
@@ -26,6 +27,7 @@ function Router() {
       <Route path="/calendar" component={CalendarPage} />
       <Route path="/account" component={AccountPage} />
       <Route path="/profile" component={AccountPage} />
+      <Route path="/gmail-review" component={GmailReviewPage} />
       <Route path="/privacy" component={PrivacyPage} />
       <Route path="/terms" component={TermsPage} />
       <Route path="/cookies" component={CookiePolicyPage} />

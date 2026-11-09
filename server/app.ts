@@ -23,6 +23,7 @@ try {
 } catch {}
 
 import { aiService } from "./ai/index.js";
+import { triageAndExtractEmails } from "./ai/gmail-triage.js";
 import { checkAccount, registerAccount, unregisterAccount } from "./accounts.js";
 import { getAdminAuth, getAdminFirestore, getAdminStorage } from "./firebaseAdmin.js";
 
@@ -169,6 +170,22 @@ app.post("/api/extract-deadlines", async (req, res) => {
       success: false,
       error: userMessage,
     });
+  }
+});
+
+// Unified Gmail Triage & Deadline Extraction API
+app.post("/api/gmail/triage-extract", async (req, res) => {
+  try {
+    const { messages, currentDate, userTimeZone } = req.body || {};
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return res.json({ success: true, results: [] });
+    }
+
+    const results = await triageAndExtractEmails(messages, currentDate, userTimeZone);
+    res.json({ success: true, results });
+  } catch (error: any) {
+    console.error("Gmail triage extraction route error:", error);
+    res.status(500).json({ success: false, error: "Triage process failed." });
   }
 });
 

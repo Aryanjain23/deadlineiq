@@ -298,63 +298,21 @@ export async function syncGmailTasks(
   count: number;
   newDeadlines: Deadline[];
   connectedEmail: string;
+  feedback?: string;
 }> {
-  let token = getGmailAccessToken();
+  const { syncGmailWithReviewFlow } = await import("./gmailReview");
+  const stats = await syncGmailWithReviewFlow(userUid, forceOAuthPopup);
 
-  if (!token || forceOAuthPopup) {
-    const authRes = await requestGmailAccess();
-    token = authRes.accessToken;
-  }
-
+  const token = getGmailAccessToken();
   const meta = getGmailMeta(userUid);
-  const connectedEmail = (await fetchGmailUserProfile(token)) || meta.connectedEmail || "Primary Gmail";
-
-  const rawMessages = await fetchAcademicGmailMessages(token, 12);
-  const unreadMessages = rawMessages.filter(
-    (m) => !meta.processedMessageIds.includes(m.id)
-  );
-
-  if (unreadMessages.length === 0) {
-    const updatedMeta: GmailMeta = {
-      ...meta,
-      isConnected: true,
-      connectedEmail,
-      lastSyncTime: new Date().toISOString(),
-    };
-    saveGmailMeta(userUid, updatedMeta);
-    return {
-      success: true,
-      count: 0,
-      newDeadlines: [],
-      connectedEmail,
-    };
-  }
-
-  const extractedDeadlines = await extractTasksFromGmailMessages(unreadMessages);
-
-  // Save each extracted deadline to Firestore / local storage
-  const savedItems: Deadline[] = [];
-  for (const d of extractedDeadlines) {
-    const saved = await createDeadline(userUid, d);
-    savedItems.push(saved);
-  }
-
-  const newlyProcessedIds = unreadMessages.map((m) => m.id);
-  const updatedMeta: GmailMeta = {
-    isConnected: true,
-    connectedEmail,
-    lastSyncTime: new Date().toISOString(),
-    syncedMessagesCount: meta.syncedMessagesCount + savedItems.length,
-    processedMessageIds: Array.from(new Set([...meta.processedMessageIds, ...newlyProcessedIds])),
-  };
-
-  saveGmailMeta(userUid, updatedMeta);
+  const connectedEmail = token ? (await fetchGmailUserProfile(token)) || meta.connectedEmail || "Primary Gmail" : meta.connectedEmail || "Primary Gmail";
 
   return {
-    success: true,
-    count: savedItems.length,
-    newDeadlines: savedItems,
+    success: stats.success,
+    count: stats.pendingReviewCount,
+    newDeadlines: [],
     connectedEmail,
+    feedback: stats.feedback,
   };
 }
 
