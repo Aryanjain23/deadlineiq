@@ -310,12 +310,12 @@ export default function AccountPage() {
   const handleToggleGoogleCalendar = async () => {
     if (!userUid) return;
     if (googleMeta.isConnected) {
-      disconnectGoogleCalendar(userUid);
+      await disconnectGoogleCalendar(userUid);
       setGoogleMeta(getGoogleCalendarMeta(userUid));
     } else {
       try {
         const { requestUnifiedGoogleAccess } = await import("@/lib/googleAuth");
-        await requestUnifiedGoogleAccess(userUid);
+        await requestUnifiedGoogleAccess(userUid, "calendar");
         setGoogleMeta(getGoogleCalendarMeta(userUid));
         setGmailMeta(getGmailMeta(userUid));
       } catch (e: any) {
@@ -329,7 +329,7 @@ export default function AccountPage() {
   const handleToggleGmail = async () => {
     if (!userUid) return;
     if (gmailMeta.isConnected) {
-      disconnectGmail(userUid);
+      await disconnectGmail(userUid);
       setGmailMeta(getGmailMeta(userUid));
       setGmailStatusMessage("Gmail disconnected.");
       setTimeout(() => setGmailStatusMessage(null), 3000);
@@ -338,7 +338,7 @@ export default function AccountPage() {
       setGmailStatusMessage(null);
       try {
         const { requestUnifiedGoogleAccess } = await import("@/lib/googleAuth");
-        const res = await requestUnifiedGoogleAccess(userUid);
+        const res = await requestUnifiedGoogleAccess(userUid, "gmail");
         setGoogleMeta(getGoogleCalendarMeta(userUid));
         setGmailMeta(getGmailMeta(userUid));
         setGmailStatusMessage(

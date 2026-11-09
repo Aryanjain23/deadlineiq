@@ -54,6 +54,17 @@ export function getFirebaseAuth(): Auth | null {
 }
 
 /**
+ * Ensures browserLocalPersistence is actively enforced before authentication actions.
+ */
+export async function ensureAuthPersistence(auth: Auth): Promise<void> {
+  try {
+    await setPersistence(auth, browserLocalPersistence);
+  } catch (err) {
+    console.warn("Failed to set Firebase Auth browserLocalPersistence:", err);
+  }
+}
+
+/**
  * Normalizes phone numbers to standard E.164 format.
  * Defaults to India (+91) if a 10-digit number is provided.
  */
@@ -194,6 +205,7 @@ export async function signInWithGoogle(
   provider.setCustomParameters({ prompt: "select_account" });
 
   try {
+    await ensureAuthPersistence(auth);
     const result = await signInWithPopup(auth, provider);
     const user = result.user;
     if (!user) return null;

@@ -258,6 +258,8 @@ export default function CalendarPage() {
         type: err.type || "unknown",
         message: friendlyMessage,
       });
+      const updated = getGoogleCalendarMeta(userUid);
+      setGoogleMeta(updated);
     }
   };
 
@@ -675,7 +677,7 @@ export default function CalendarPage() {
       <main className="relative z-10 flex-1 max-w-[1376px] w-full mx-auto px-4 sm:px-8 pt-6 pb-28 md:py-6 space-y-5">
         
         {/* Friendly Google Calendar Status / Error Banner */}
-        {googleError && googleMeta.isConnected && (
+        {googleError && (
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl border border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-200 text-xs backdrop-blur-xl">
             <div className="flex items-start sm:items-center gap-2.5">
               <AlertTriangle size={16} className="text-amber-500 dark:text-amber-400 flex-shrink-0 mt-0.5 sm:mt-0" />
@@ -696,7 +698,7 @@ export default function CalendarPage() {
                 onClick={handleConnectGoogleCalendar}
                 className="px-3 py-1 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-900 dark:text-amber-100 text-xs font-medium transition-colors cursor-pointer"
               >
-                {googleError.type === "expired" ? "Reconnect" : "Retry"}
+                {googleError.type === "expired" || !googleMeta.isConnected ? "Reconnect" : "Retry"}
               </button>
               <button
                 type="button"

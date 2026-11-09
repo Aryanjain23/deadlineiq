@@ -119,7 +119,7 @@ export default function GmailReviewSettingsSection({ userUid }: GmailReviewSetti
       setErrorMessage(null);
       try {
         const { requestUnifiedGoogleAccess } = await import("@/lib/googleAuth");
-        const res = await requestUnifiedGoogleAccess(userUid);
+        const res = await requestUnifiedGoogleAccess(userUid, "gmail");
         setMeta(getGmailMeta(userUid));
         setSyncStatsText(`Connected as ${res.connectedEmail || "Gmail Account"}`);
         const stats = await syncGmailWithReviewFlow(userUid, false);

@@ -98,7 +98,7 @@ export function saveGmailMeta(uid: string, meta: GmailMeta): void {
  */
 export async function requestGmailAccess(userUid = "default"): Promise<{ accessToken: string; expiresIn: number }> {
   const { requestUnifiedGoogleAccess } = await import("./googleAuth");
-  const result = await requestUnifiedGoogleAccess(userUid);
+  const result = await requestUnifiedGoogleAccess(userUid, "gmail");
   return {
     accessToken: result.accessToken,
     expiresIn: 3599,

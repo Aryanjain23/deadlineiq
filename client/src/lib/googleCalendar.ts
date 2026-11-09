@@ -229,7 +229,7 @@ export function ensureGoogleIdentityServices(): Promise<void> {
  */
 export async function requestGoogleCalendarAccess(userUid = "default"): Promise<{ accessToken: string; expiresIn: number }> {
   const { requestUnifiedGoogleAccess } = await import("./googleAuth");
-  const result = await requestUnifiedGoogleAccess(userUid);
+  const result = await requestUnifiedGoogleAccess(userUid, "calendar");
   return {
     accessToken: result.accessToken,
     expiresIn: 3599,
@@ -531,7 +531,7 @@ async function handleGoogleApiError(res: Response): Promise<GoogleCalendarError>
       message = "Google Calendar API rate limit or quota exceeded. Please try again in a few minutes.";
     } else {
       type = "revoked";
-      message = "Permission to access Google Calendar was revoked or not granted.";
+      message = "Google didn't grant Calendar access. On the Google screen, tick all the checkboxes, then try again.";
     }
   } else if (res.status >= 500) {
     type = "network";

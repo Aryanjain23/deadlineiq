@@ -210,6 +210,12 @@ app.post("/api/google/oauth/exchange-code", async (req, res) => {
       access_token: result.access_token,
       expires_in: result.expires_in,
       connectedEmail: result.connectedEmail,
+      scope: result.scope,
+      grantedScopes: result.grantedScopes,
+      gmailGranted: result.gmailGranted,
+      calendarGranted: result.calendarGranted,
+      gmailError: result.gmailError,
+      calendarError: result.calendarError,
     });
   } catch (error: any) {
     console.warn("OAuth exchange error:", error?.message || error);

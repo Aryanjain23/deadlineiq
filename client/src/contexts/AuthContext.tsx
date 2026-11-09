@@ -263,10 +263,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const currentUid = user?.uid;
     const currentUsn = user?.usn;
     try {
-      if (currentUid) {
-        await disconnectGoogleCalendar(currentUid);
-      }
       clearGoogleAccessToken();
+      try {
+        const { clearGmailAccessToken } = await import("@/lib/gmail");
+        clearGmailAccessToken();
+      } catch {}
       await logOutFromFirebase();
     } catch (err) {
       console.warn("Firebase sign out error:", err);
@@ -316,7 +317,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       if (currentUid) {
-        await disconnectGoogleCalendar(currentUid);
+        try {
+          const { disconnectUnifiedGoogleAccess } = await import("@/lib/googleAuth");
+          await disconnectUnifiedGoogleAccess(currentUid, "all");
+        } catch {}
       }
 
       await logOutFromFirebase();

@@ -19,10 +19,12 @@ export interface GoogleSetupCheckResult {
   clientSecretConfigured: boolean;
   redirectUriConfigured: boolean;
   gmailConnected: boolean;
+  gmailScopeGranted: boolean;
   gmailRefreshTokenStored: boolean;
   gmailLastSync: string | null;
   gmailLastError: string | null;
   calendarConnected: boolean;
+  calendarScopeGranted: boolean;
   calendarRefreshTokenStored: boolean;
   calendarLastSync: string | null;
   calendarLastError: string | null;
@@ -74,7 +76,7 @@ export function getServerGoogleClientSecret(): string {
  * Resolves the redirect URI for OAuth token exchange.
  */
 export function getServerGoogleRedirectUri(): string {
-  if (process.env.GOOGLE_REDIRECT_URI) {
+  if (process.env.GOOGLE_REDIRECT_URI && process.env.GOOGLE_REDIRECT_URI.trim()) {
     return process.env.GOOGLE_REDIRECT_URI.trim();
   }
   // Standard Google Identity Services popup mode redirect URI
@@ -97,18 +99,33 @@ export function formatGoogleOAuthError(errorData: any): string {
   }
 
   if (errCode === "invalid_grant" || desc.includes("invalid_grant")) {
-    return "The authorization code was expired or already used, or permissions were revoked. Please click Connect to authorize again.";
+    return "The authorization code was expired or already used, or permissions were revoked. Please click Reconnect to authorize again.";
+  }
+
+  if (errCode === "access_denied" || desc.includes("access_denied")) {
+    return "Google access was denied. On the Google consent screen, please click Continue and allow the requested permissions.";
   }
 
   if (errCode === "unauthorized_client" || desc.includes("unauthorized_client")) {
     return "The OAuth Client is not authorized for this grant type or scope. Please check enabled scopes (gmail.readonly, calendar.events) in Google Cloud Console.";
   }
 
+  if (errCode === "insufficient_scope" || desc.includes("insufficient_scope") || desc.includes("403")) {
+    return "Insufficient Google permissions (403). Required scopes were not granted. Please reconnect and ensure all checkboxes are ticked on the Google consent screen.";
+  }
+
   return desc || errCode || "Google authorization request failed. Please check your credentials.";
 }
 
 /**
+ * Required Scopes Definitions
+ */
+export const REQUIRED_GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
+export const REQUIRED_CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events";
+
+/**
  * Performs code-for-token exchange on the server with Google's token endpoint.
+ * Enforces scope validation and per-service record isolation.
  */
 export async function exchangeGoogleAuthorizationCode(
   code: string,
@@ -118,6 +135,12 @@ export async function exchangeGoogleAuthorizationCode(
   access_token: string;
   expires_in: number;
   connectedEmail: string | null;
+  scope: string;
+  grantedScopes: string[];
+  gmailGranted: boolean;
+  calendarGranted: boolean;
+  gmailError: string | null;
+  calendarError: string | null;
 }> {
   if (!code) {
     throw new Error("Authorization code is required.");
@@ -171,6 +194,25 @@ export async function exchangeGoogleAuthorizationCode(
 
   const { access_token, refresh_token, expires_in, scope } = tokenData;
 
+  // Parse and log granted scopes on the server (never log the token itself)
+  const scopeStr = typeof scope === "string" ? scope.trim() : "";
+  const grantedScopes = scopeStr ? scopeStr.split(/\s+/).filter(Boolean) : [];
+
+  const hasGmailScope = grantedScopes.some((s) => s.includes("gmail.readonly"));
+  const hasCalendarScope = grantedScopes.some((s) => s.includes("calendar.events") || s.includes("calendar.readonly"));
+
+  console.log(`[Google OAuth Server] Token exchange for user: ${userUid}`);
+  console.log(`[Google OAuth Server] Scope string returned by Google: "${scopeStr}"`);
+  console.log(`[Google OAuth Server] Granted scopes (${grantedScopes.length}): ${JSON.stringify(grantedScopes)}`);
+  console.log(`[Google OAuth Server] gmail.readonly granted: ${hasGmailScope}, calendar.events granted: ${hasCalendarScope}`);
+
+  if (!hasGmailScope) {
+    console.log(`[Google OAuth Server] Missing scope: ${REQUIRED_GMAIL_SCOPE}`);
+  }
+  if (!hasCalendarScope) {
+    console.log(`[Google OAuth Server] Missing scope: ${REQUIRED_CALENDAR_SCOPE}`);
+  }
+
   // Retrieve user email
   let connectedEmail: string | null = null;
   try {
@@ -185,23 +227,57 @@ export async function exchangeGoogleAuthorizationCode(
 
   const now = new Date().toISOString();
 
-  // Store refresh token securely on the server
-  if (refresh_token) {
+  const gmailError = !hasGmailScope
+    ? "Google didn't grant Gmail access. On the Google screen, tick all the checkboxes, then try again."
+    : null;
+
+  const calendarError = !hasCalendarScope
+    ? "Google didn't grant Calendar access. On the Google screen, tick all the checkboxes, then try again."
+    : null;
+
+  // Store tokens per user and per service (separate records for gmail and calendar).
+  // Connecting one must NEVER overwrite or invalidate the other.
+  // If no new refresh token is returned by Google, keep the existing one!
+
+  if (hasGmailScope) {
+    const existingGmail = getServerOAuthToken(userUid, "gmail", false);
+    const finalRefreshToken = refresh_token || existingGmail?.refreshToken || "";
     saveServerOAuthToken({
       userUid,
-      service: service as any,
-      refreshToken: refresh_token,
+      service: "gmail",
+      refreshToken: finalRefreshToken,
       connectedEmail,
-      scopes: typeof scope === "string" ? scope.split(" ") : [],
+      scopes: grantedScopes,
       updatedAt: now,
       lastSyncTime: now,
       lastError: null,
     });
   } else {
-    // If Google didn't return a new refresh token, preserve existing one
-    updateServerOAuthMetadata(userUid, service, {
+    // If Gmail scope not granted, record error on Gmail service
+    updateServerOAuthMetadata(userUid, "gmail", {
+      lastError: gmailError,
+      scopes: grantedScopes,
+    });
+  }
+
+  if (hasCalendarScope) {
+    const existingCal = getServerOAuthToken(userUid, "calendar", false);
+    const finalRefreshToken = refresh_token || existingCal?.refreshToken || "";
+    saveServerOAuthToken({
+      userUid,
+      service: "calendar",
+      refreshToken: finalRefreshToken,
+      connectedEmail,
+      scopes: grantedScopes,
+      updatedAt: now,
       lastSyncTime: now,
       lastError: null,
+    });
+  } else {
+    // If Calendar scope not granted, record error on Calendar service
+    updateServerOAuthMetadata(userUid, "calendar", {
+      lastError: calendarError,
+      scopes: grantedScopes,
     });
   }
 
@@ -209,6 +285,12 @@ export async function exchangeGoogleAuthorizationCode(
     access_token,
     expires_in: expires_in || 3599,
     connectedEmail,
+    scope: scopeStr,
+    grantedScopes,
+    gmailGranted: hasGmailScope,
+    calendarGranted: hasCalendarScope,
+    gmailError,
+    calendarError,
   };
 }
 
@@ -263,7 +345,6 @@ export async function refreshGoogleAccessToken(
     });
   } catch (netErr: any) {
     if (retryAttempt === 0) {
-      // Retry once after 500ms on transient network drop
       await new Promise((r) => setTimeout(r, 500));
       return refreshGoogleAccessToken(userUid, service, 1);
     }
@@ -309,7 +390,8 @@ export async function refreshGoogleAccessToken(
 }
 
 /**
- * Revokes Google access for a user and cleans up stored tokens.
+ * Revokes Google access for a user and cleans up stored tokens per service.
+ * Disconnecting one service never invalidates or deletes the other.
  */
 export async function revokeGoogleAccessToken(
   userUid: string,
@@ -319,20 +401,46 @@ export async function revokeGoogleAccessToken(
     throw new Error("User UID is required.");
   }
 
-  const targetService = service === "all" ? "unified" : service;
-  const stored = getServerOAuthToken(userUid, targetService as any);
+  if (service === "all") {
+    const gmailToken = getServerOAuthToken(userUid, "gmail", false);
+    const calToken = getServerOAuthToken(userUid, "calendar", false);
+    const tokenToRevoke = gmailToken?.refreshToken || calToken?.refreshToken;
 
-  if (stored?.refreshToken) {
+    if (tokenToRevoke) {
+      try {
+        await fetch(
+          `https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(tokenToRevoke)}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          }
+        );
+      } catch (e) {
+        console.warn("Revoke all token warning:", e);
+      }
+    }
+
+    deleteServerOAuthToken(userUid, "all");
+    return { success: true, message: "Disconnected all Google integrations." };
+  }
+
+  // Service-specific disconnection
+  const targetToken = getServerOAuthToken(userUid, service as any, false);
+  const otherService = service === "gmail" ? "calendar" : "gmail";
+  const otherToken = getServerOAuthToken(userUid, otherService as any, false);
+
+  // If the other service does not share the exact same refresh token or if it's unique, revoke
+  if (targetToken?.refreshToken && targetToken.refreshToken !== otherToken?.refreshToken) {
     try {
       await fetch(
-        `https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(stored.refreshToken)}`,
+        `https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(targetToken.refreshToken)}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
         }
       );
-    } catch (revokeErr) {
-      console.warn("Google revoke API call notice:", revokeErr);
+    } catch (e) {
+      console.warn(`Revoke ${service} warning:`, e);
     }
   }
 
@@ -340,7 +448,7 @@ export async function revokeGoogleAccessToken(
 
   return {
     success: true,
-    message: `Successfully disconnected ${service} integration.`,
+    message: `Successfully disconnected Google ${service}.`,
   };
 }
 
@@ -358,28 +466,36 @@ export function getGoogleSetupCheck(userUid?: string): GoogleSetupCheckResult {
   const redirectUriConfigured = Boolean(redirectUri && redirectUri.length > 0);
 
   let gmailConnected = false;
+  let gmailScopeGranted = false;
   let gmailRefreshTokenStored = false;
   let gmailLastSync: string | null = null;
   let gmailLastError: string | null = null;
 
   let calendarConnected = false;
+  let calendarScopeGranted = false;
   let calendarRefreshTokenStored = false;
   let calendarLastSync: string | null = null;
   let calendarLastError: string | null = null;
 
   if (userUid) {
+    // Check Gmail
     const gmailToken = getServerOAuthToken(userUid, "gmail") || getServerOAuthToken(userUid, "unified");
     if (gmailToken) {
-      gmailConnected = true;
       gmailRefreshTokenStored = Boolean(gmailToken.refreshToken);
+      const scopes = Array.isArray(gmailToken.scopes) ? gmailToken.scopes : [];
+      gmailScopeGranted = scopes.some((s) => s.includes("gmail.readonly"));
+      gmailConnected = Boolean(gmailRefreshTokenStored && gmailScopeGranted);
       gmailLastSync = gmailToken.lastSyncTime || gmailToken.updatedAt || null;
       gmailLastError = gmailToken.lastError || null;
     }
 
+    // Check Calendar
     const calToken = getServerOAuthToken(userUid, "calendar") || getServerOAuthToken(userUid, "unified");
     if (calToken) {
-      calendarConnected = true;
       calendarRefreshTokenStored = Boolean(calToken.refreshToken);
+      const scopes = Array.isArray(calToken.scopes) ? calToken.scopes : [];
+      calendarScopeGranted = scopes.some((s) => s.includes("calendar.events") || s.includes("calendar.readonly"));
+      calendarConnected = Boolean(calendarRefreshTokenStored && calendarScopeGranted);
       calendarLastSync = calToken.lastSyncTime || calToken.updatedAt || null;
       calendarLastError = calToken.lastError || null;
     }
@@ -390,12 +506,15 @@ export function getGoogleSetupCheck(userUid?: string): GoogleSetupCheckResult {
     clientSecretConfigured,
     redirectUriConfigured,
     gmailConnected,
+    gmailScopeGranted,
     gmailRefreshTokenStored,
     gmailLastSync,
     gmailLastError,
     calendarConnected,
+    calendarScopeGranted,
     calendarRefreshTokenStored,
     calendarLastSync,
     calendarLastError,
   };
 }
+

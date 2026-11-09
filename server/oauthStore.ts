@@ -45,28 +45,52 @@ function saveTokensStore(store: Record<string, StoredOAuthToken>): void {
 export function saveServerOAuthToken(token: StoredOAuthToken): void {
   const store = loadTokensStore();
   const key = `${token.userUid}_${token.service}`;
-  store[key] = token;
+  const existing = store[key];
+
+  // If no new refresh token returned, keep the existing one
+  const finalRefreshToken = token.refreshToken || existing?.refreshToken || "";
+
+  store[key] = {
+    ...token,
+    refreshToken: finalRefreshToken,
+    connectedEmail: token.connectedEmail || existing?.connectedEmail || null,
+    updatedAt: new Date().toISOString(),
+  };
+
   saveTokensStore(store);
 }
 
-export function getServerOAuthToken(userUid: string, service: "gmail" | "calendar" | "unified"): StoredOAuthToken | null {
+export function getServerOAuthToken(
+  userUid: string,
+  service: "gmail" | "calendar" | "unified",
+  fallbackToUnified = true
+): StoredOAuthToken | null {
   const store = loadTokensStore();
-  const key = `${userUid}_${service}`;
-  if (store[key]) return store[key];
+  const serviceKey = `${userUid}_${service}`;
+  if (store[serviceKey]) return store[serviceKey];
 
-  // Fallback to unified token
-  const unifiedKey = `${userUid}_unified`;
-  if (store[unifiedKey]) return store[unifiedKey];
+  if (fallbackToUnified) {
+    const unifiedKey = `${userUid}_unified`;
+    if (store[unifiedKey]) return store[unifiedKey];
+  }
 
   return null;
 }
 
-export function deleteServerOAuthToken(userUid: string, service: "gmail" | "calendar" | "unified" | "all"): void {
+export function deleteServerOAuthToken(
+  userUid: string,
+  service: "gmail" | "calendar" | "unified" | "all"
+): void {
   const store = loadTokensStore();
   if (service === "all") {
     delete store[`${userUid}_gmail`];
     delete store[`${userUid}_calendar`];
     delete store[`${userUid}_unified`];
+  } else if (service === "calendar") {
+    delete store[`${userUid}_calendar`];
+    // If unified token exists, preserve gmail record separately if present
+  } else if (service === "gmail") {
+    delete store[`${userUid}_gmail`];
   } else {
     delete store[`${userUid}_${service}`];
   }
@@ -76,7 +100,7 @@ export function deleteServerOAuthToken(userUid: string, service: "gmail" | "cale
 export function updateServerOAuthMetadata(
   userUid: string,
   service: "gmail" | "calendar" | "unified",
-  updates: { lastSyncTime?: string; lastError?: string | null }
+  updates: { lastSyncTime?: string; lastError?: string | null; scopes?: string[] }
 ): void {
   const store = loadTokensStore();
   const key = `${userUid}_${service}`;
@@ -91,3 +115,4 @@ export function updateServerOAuthMetadata(
     saveTokensStore(store);
   }
 }
+

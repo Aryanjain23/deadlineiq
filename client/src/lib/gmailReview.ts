@@ -315,6 +315,10 @@ export async function fetchGmailMessagesSmart(
         clearGmailAccessToken();
         throw new Error("Gmail authorization expired. Please reconnect.");
       }
+      if (listRes.status === 403) {
+        clearGmailAccessToken();
+        throw new Error("Google didn't grant Gmail access. On the Google screen, tick all the checkboxes, then try again.");
+      }
       const errJson = await listRes.json().catch(() => ({}));
       throw new Error(errJson.error?.message || `Gmail API error HTTP ${listRes.status}`);
     }
@@ -435,6 +439,13 @@ export async function syncGmailWithReviewFlow(
   const logs: string[] = [];
 
   let token = getGmailAccessToken();
+  if (!token && !forceOAuthPopup) {
+    try {
+      const { getValidGoogleAccessToken } = await import("./googleAuth");
+      token = await getValidGoogleAccessToken(userUid, "gmail");
+    } catch {}
+  }
+
   if (!token || forceOAuthPopup) {
     logs.push("[Auth] Requesting Google authorization token...");
     const authRes = await requestGmailAccess(userUid);

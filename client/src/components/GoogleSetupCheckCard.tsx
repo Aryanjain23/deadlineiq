@@ -17,10 +17,12 @@ export interface GoogleSetupDiagnostics {
   clientSecretConfigured: boolean;
   redirectUriConfigured: boolean;
   gmailConnected: boolean;
+  gmailScopeGranted: boolean;
   gmailRefreshTokenStored: boolean;
   gmailLastSync: string | null;
   gmailLastError: string | null;
   calendarConnected: boolean;
+  calendarScopeGranted: boolean;
   calendarRefreshTokenStored: boolean;
   calendarLastSync: string | null;
   calendarLastError: string | null;
@@ -88,7 +90,7 @@ export default function GoogleSetupCheckCard({ userUid }: GoogleSetupCheckCardPr
               </span>
             </div>
             <p className="text-[11px] text-slate-500 dark:text-text-muted mt-0.5">
-              Live diagnostics of server environment variables and active OAuth refresh tokens.
+              Live diagnostics of server environment variables, granted scopes, and active OAuth refresh tokens.
             </p>
           </div>
         </div>
@@ -110,7 +112,7 @@ export default function GoogleSetupCheckCard({ userUid }: GoogleSetupCheckCardPr
             onClick={() => setIsExpanded(!isExpanded)}
             className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-border text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white text-[11px] transition-colors cursor-pointer flex items-center gap-1"
           >
-            <span>{isExpanded ? "Hide Details" : "Show Details"}</span>
+            <span>{isExpanded ? "Hide Guide" : "Setup Guide"}</span>
             {isExpanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
           </button>
         </div>
@@ -138,8 +140,8 @@ export default function GoogleSetupCheckCard({ userUid }: GoogleSetupCheckCardPr
             </div>
             <p className="text-[11px] text-slate-600 dark:text-text-muted leading-relaxed">
               {diagnostics.clientIdConfigured
-                ? "OAuth Client ID is detected and active on the server."
-                : "Add GOOGLE_CLIENT_ID to your .env or Vercel Environment Variables."}
+                ? "OAuth Client ID detected and active on the server."
+                : "Fix: Add GOOGLE_CLIENT_ID to your environment variables (.env / Vercel)."}
             </p>
           </div>
 
@@ -163,7 +165,7 @@ export default function GoogleSetupCheckCard({ userUid }: GoogleSetupCheckCardPr
             <p className="text-[11px] text-slate-600 dark:text-text-muted leading-relaxed">
               {diagnostics.clientSecretConfigured
                 ? "Client Secret is securely stored on the server."
-                : "Add GOOGLE_CLIENT_SECRET to .env or Vercel (from Google Cloud Console -> Credentials)."}
+                : "Fix: Add GOOGLE_CLIENT_SECRET from Google Cloud Console Credentials."}
             </p>
           </div>
 
@@ -186,65 +188,123 @@ export default function GoogleSetupCheckCard({ userUid }: GoogleSetupCheckCardPr
             </div>
             <p className="text-[11px] text-slate-600 dark:text-text-muted leading-relaxed">
               {diagnostics.redirectUriConfigured
-                ? "Configured for GIS popup mode ('postmessage')."
-                : "Add 'postmessage' to Authorized Redirect URIs in Google Cloud Console."}
+                ? "Configured for Google Identity Services popup mode ('postmessage')."
+                : "Fix: Add 'postmessage' to Authorized Redirect URIs in Google Cloud Console."}
             </p>
           </div>
 
-          {/* 4. Gmail Connection & Refresh Token */}
+          {/* 4. Gmail Granted Scope */}
           <div className="p-3 rounded-xl border border-slate-200/80 dark:border-border bg-slate-50/50 dark:bg-[#0c101a] space-y-1.5">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-mono font-medium uppercase text-slate-500 flex items-center gap-1.5">
                 <Mail size={12} className="text-rose-500" />
-                <span>Gmail Connection</span>
+                <span>Gmail Scope (gmail.readonly)</span>
               </span>
-              {diagnostics.gmailConnected ? (
+              {diagnostics.gmailScopeGranted ? (
                 <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium text-emerald-600 dark:text-emerald-400">
-                  <CheckCircle2 size={11} /> {diagnostics.gmailRefreshTokenStored ? "Token Active" : "Connected"}
+                  <CheckCircle2 size={11} /> Granted
                 </span>
               ) : (
-                <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium text-slate-400">
-                  Disconnected
+                <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium text-rose-600 dark:text-rose-400">
+                  <AlertCircle size={11} /> Missing
                 </span>
               )}
             </div>
             <p className="text-[11px] text-slate-600 dark:text-text-muted leading-relaxed">
-              {diagnostics.gmailConnected
-                ? `Sync active. ${diagnostics.gmailLastSync ? `Last: ${new Date(diagnostics.gmailLastSync).toLocaleDateString()}` : ""}`
-                : "Click 'Connect Gmail' below to link your academic inbox."}
+              {diagnostics.gmailScopeGranted
+                ? "User granted read access to academic notices."
+                : "Fix: Click Connect Gmail and ensure the Gmail checkbox is ticked."}
             </p>
-            {diagnostics.gmailLastError && (
-              <p className="text-[10px] text-rose-500 font-mono mt-1 leading-tight">
-                Notice: {diagnostics.gmailLastError}
-              </p>
-            )}
           </div>
 
-          {/* 5. Google Calendar Connection & Refresh Token */}
+          {/* 5. Calendar Granted Scope */}
           <div className="p-3 rounded-xl border border-slate-200/80 dark:border-border bg-slate-50/50 dark:bg-[#0c101a] space-y-1.5">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-mono font-medium uppercase text-slate-500 flex items-center gap-1.5">
                 <CalendarDays size={12} className="text-blue-500" />
-                <span>Calendar Connection</span>
+                <span>Calendar Scope (calendar.events)</span>
               </span>
-              {diagnostics.calendarConnected ? (
+              {diagnostics.calendarScopeGranted ? (
                 <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium text-emerald-600 dark:text-emerald-400">
-                  <CheckCircle2 size={11} /> {diagnostics.calendarRefreshTokenStored ? "Token Active" : "Connected"}
+                  <CheckCircle2 size={11} /> Granted
                 </span>
               ) : (
-                <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium text-slate-400">
-                  Disconnected
+                <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium text-rose-600 dark:text-rose-400">
+                  <AlertCircle size={11} /> Missing
                 </span>
               )}
             </div>
             <p className="text-[11px] text-slate-600 dark:text-text-muted leading-relaxed">
-              {diagnostics.calendarConnected
-                ? `Sync active. ${diagnostics.calendarLastSync ? `Last: ${new Date(diagnostics.calendarLastSync).toLocaleDateString()}` : ""}`
-                : "Click 'Connect' on the Google Calendar card below to sync."}
+              {diagnostics.calendarScopeGranted
+                ? "User granted read/write access to calendar events."
+                : "Fix: Click Connect Calendar and ensure the Calendar checkbox is ticked."}
+            </p>
+          </div>
+
+          {/* 6. Gmail Refresh Token (Stored per service) */}
+          <div className="p-3 rounded-xl border border-slate-200/80 dark:border-border bg-slate-50/50 dark:bg-[#0c101a] space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-mono font-medium uppercase text-slate-500 flex items-center gap-1.5">
+                <Mail size={12} className="text-rose-500" />
+                <span>Gmail Refresh Token</span>
+              </span>
+              {diagnostics.gmailRefreshTokenStored ? (
+                <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium text-emerald-600 dark:text-emerald-400">
+                  <CheckCircle2 size={11} /> Stored
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium text-slate-400">
+                  Not Stored
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-600 dark:text-text-muted leading-relaxed">
+              {diagnostics.gmailRefreshTokenStored
+                ? "Offline refresh token active for silent background synchronization."
+                : "Fix: Click Connect Gmail below to store offline refresh token."}
+            </p>
+            {diagnostics.gmailLastError && (
+              <p className="text-[10px] text-rose-500 font-mono mt-1 leading-tight">
+                Last error: {diagnostics.gmailLastError}
+              </p>
+            )}
+            {diagnostics.gmailLastSync && (
+              <p className="text-[10px] text-slate-500 dark:text-text-muted font-mono mt-0.5">
+                Last sync: {new Date(diagnostics.gmailLastSync).toLocaleString()}
+              </p>
+            )}
+          </div>
+
+          {/* 7. Calendar Refresh Token (Stored per service) */}
+          <div className="p-3 rounded-xl border border-slate-200/80 dark:border-border bg-slate-50/50 dark:bg-[#0c101a] space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-mono font-medium uppercase text-slate-500 flex items-center gap-1.5">
+                <CalendarDays size={12} className="text-blue-500" />
+                <span>Calendar Refresh Token</span>
+              </span>
+              {diagnostics.calendarRefreshTokenStored ? (
+                <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium text-emerald-600 dark:text-emerald-400">
+                  <CheckCircle2 size={11} /> Stored
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium text-slate-400">
+                  Not Stored
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-600 dark:text-text-muted leading-relaxed">
+              {diagnostics.calendarRefreshTokenStored
+                ? "Offline refresh token active for silent event synchronization."
+                : "Fix: Click Connect on the Google Calendar card to store offline token."}
             </p>
             {diagnostics.calendarLastError && (
               <p className="text-[10px] text-rose-500 font-mono mt-1 leading-tight">
-                Notice: {diagnostics.calendarLastError}
+                Last error: {diagnostics.calendarLastError}
+              </p>
+            )}
+            {diagnostics.calendarLastSync && (
+              <p className="text-[10px] text-slate-500 dark:text-text-muted font-mono mt-0.5">
+                Last sync: {new Date(diagnostics.calendarLastSync).toLocaleString()}
               </p>
             )}
           </div>
