@@ -50,6 +50,16 @@ app.use((req, _res, next) => {
   next();
 });
 
+// GET /api/health -> { ok: true }
+app.get("/api/health", (_req, res) => {
+  res.json({
+    ok: true,
+    status: "healthy",
+    service: "DeadlineIQ Backend",
+    timestamp: new Date().toISOString(),
+  });
+});
+
 // Unified AI Provider Status API
 app.get("/api/ai/status", (_req, res) => {
   res.json({
@@ -201,12 +211,28 @@ app.post("/api/gmail/triage-extract", async (req, res) => {
 });
 
 // STEP 1 & 2: Server-Driven Google OAuth Start Route
-app.get("/api/auth/google/start", (req, res) => {
+app.get("/api/auth/google/start", async (req, res) => {
   try {
     const service = (req.query.service as string) === "gmail" ? "gmail" : "calendar";
-    const uid = (req.query.uid as string) || "";
+    let uid = (req.query.uid as string) || "";
+    const idToken = (req.query.token as string) || (req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.slice(7) : "");
+
+    if (idToken) {
+      try {
+        const adminAuth = await getAdminAuth();
+        if (adminAuth) {
+          const decoded = await adminAuth.verifyIdToken(idToken);
+          if (decoded.uid) {
+            uid = decoded.uid;
+          }
+        }
+      } catch (authErr) {
+        console.warn("[OAuth Start] ID token verification notice:", authErr);
+      }
+    }
+
     if (!uid) {
-      return res.status(400).send("User UID is required to initiate authorization.");
+      return res.status(400).send("User UID or Firebase ID token is required to initiate authorization.");
     }
 
     const origin = deriveRequestOrigin(req);
@@ -350,14 +376,15 @@ app.get("/api/google/oauth/token", async (req, res) => {
     const uid = req.query.uid as string;
     const service = (req.query.service as string) === "gmail" ? "gmail" : "calendar";
     if (!uid) {
-      return res.status(400).json({ success: false, error: "UID parameter is required." });
+      return res.status(400).json({ ok: false, success: false, error: "UID parameter is required." });
     }
 
     const token = await getAccessToken(uid, service);
-    res.json({ success: true, accessToken: token, service });
+    res.json({ ok: true, success: true, accessToken: token, service });
   } catch (err: any) {
     const status = err?.code === "reconnect_required" || err?.code === "not_connected" ? 401 : 400;
     res.status(status).json({
+      ok: false,
       success: false,
       error: err?.message || "Failed to retrieve access token.",
       code: err?.code || "TOKEN_ERROR",
@@ -365,53 +392,59 @@ app.get("/api/google/oauth/token", async (req, res) => {
   }
 });
 
-// STEP 7: Test Connection Endpoint (makes real API call)
-app.post("/api/google/oauth/test-connection", async (req, res) => {
+// STEP 7: Test Connection Endpoint (Both /api/google/test and /api/google/oauth/test-connection)
+const handleGoogleTestConnection = async (req: express.Request, res: express.Response) => {
   try {
-    const userUid = (req.body?.userUid || req.body?.uid || "").toString().trim();
-    const service = (req.body?.service || "").toString().trim();
-    if (!userUid || !service) {
-      return res.status(400).json({ success: false, message: "userUid and service are required." });
+    const userUid = (req.body?.userUid || req.body?.uid || req.query.uid || "").toString().trim();
+    const service = (req.query.service || req.body?.service || "calendar").toString().trim();
+    if (!userUid) {
+      return res.status(400).json({ ok: false, success: false, message: "userUid and service are required." });
     }
 
     const targetService = service === "gmail" ? "gmail" : "calendar";
     const result = await testGoogleServiceConnection(userUid, targetService);
-    res.json(result);
+    res.json({ ok: result.success, ...result });
   } catch (err: any) {
-    res.status(500).json({ success: false, message: err?.message || "Test connection failed." });
+    res.status(500).json({ ok: false, success: false, message: err?.message || "Test connection failed." });
   }
-});
+};
+app.post("/api/google/test", handleGoogleTestConnection);
+app.post("/api/google/oauth/test-connection", handleGoogleTestConnection);
 
-// Google OAuth Revoke & Disconnect Endpoint
-app.post("/api/google/oauth/revoke", async (req, res) => {
+// Google Disconnect / Revoke Endpoint (Both /api/google/disconnect and /api/google/oauth/revoke)
+const handleGoogleDisconnect = async (req: express.Request, res: express.Response) => {
   try {
-    const { userUid, service = "all" } = req.body || {};
+    const userUid = (req.body?.userUid || req.body?.uid || req.query.uid || "").toString().trim();
+    const service = (req.body?.service || req.query.service || "all").toString().trim();
     if (!userUid) {
-      return res.status(400).json({ error: "User UID is required." });
+      return res.status(400).json({ ok: false, error: "User UID is required." });
     }
 
     const result = await revokeGoogleAccessToken(userUid, service as any);
-    res.json(result);
+    res.json({ ok: true, ...result });
   } catch (error: any) {
     console.error("OAuth revoke error:", error);
-    res.status(500).json({ error: error?.message || "Revoke request failed." });
+    res.status(500).json({ ok: false, error: error?.message || "Revoke request failed." });
   }
-});
+};
+app.post("/api/google/disconnect", handleGoogleDisconnect);
+app.post("/api/google/oauth/revoke", handleGoogleDisconnect);
 
-// Server OAuth Connection Status Endpoint
-app.get("/api/google/oauth/status", (req, res) => {
-  const uid = req.query.uid as string;
-  if (!uid) return res.status(400).json({ error: "UID required" });
-
+// Server OAuth Connection Status Endpoint (Both /api/google/status and /api/google/oauth/status)
+const handleGoogleStatus = (req: express.Request, res: express.Response) => {
+  const uid = (req.query.uid as string) || "";
   const origin = deriveRequestOrigin(req);
   const status = getGoogleSetupCheck(uid, origin);
   res.json({
+    ok: true,
     gmailConnected: status.gmailConnected,
     gmailEmail: status.gmailConnected ? "Connected" : null,
     calendarConnected: status.calendarConnected,
     calendarEmail: status.calendarConnected ? "Connected" : null,
   });
-});
+};
+app.get("/api/google/status", handleGoogleStatus);
+app.get("/api/google/oauth/status", handleGoogleStatus);
 
 // Google Setup Check Endpoint (Returns booleans and diagnostic details)
 app.get("/api/google/oauth/setup-check", (req, res) => {
@@ -419,8 +452,19 @@ app.get("/api/google/oauth/setup-check", (req, res) => {
   const origin = deriveRequestOrigin(req);
   const diagnostics = getGoogleSetupCheck(uid, origin);
   res.json({
+    ok: true,
     success: true,
     diagnostics,
+  });
+});
+
+// Backward compatibility handler for any cached client calling exchange-code
+app.post("/api/google/oauth/exchange-code", async (req, res) => {
+  res.status(400).json({
+    ok: false,
+    success: false,
+    error: "Frontend has transitioned to server-driven OAuth. Please refresh the page or click Connect.",
+    code: "deprecated_flow",
   });
 });
 
@@ -689,3 +733,33 @@ app.post("/api/auth/delete-account", async (req, res) => {
     res.status(500).json({ error: "Server account deletion failed. Please try again." });
   }
 });
+
+// Explicit 404 handler for any unregistered /api/* routes
+app.all("/api/*", (req, res) => {
+  const method = req.method;
+  const path = req.originalUrl || req.url;
+  res.status(404).json({
+    ok: false,
+    success: false,
+    error: `Backend route ${path} not found (404). The server may need a restart.`,
+    method,
+    path,
+  });
+});
+
+// Log registered routes on startup
+export function logRegisteredRoutes() {
+  const routes: string[] = [];
+  app._router?.stack?.forEach((middleware: any) => {
+    if (middleware.route) {
+      const methods = Object.keys(middleware.route.methods).join(",").toUpperCase();
+      routes.push(`${methods} ${middleware.route.path}`);
+    }
+  });
+  if (routes.length > 0) {
+    console.log(`[DeadlineIQ Server] Registered API routes (${routes.length}):\n  - ` + routes.join("\n  - "));
+  }
+}
+
+setTimeout(() => logRegisteredRoutes(), 100);
+

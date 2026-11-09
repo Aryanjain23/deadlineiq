@@ -127,7 +127,9 @@ export default function GmailReviewSettingsSection({ userUid }: GmailReviewSetti
         setSyncStatsText(stats.feedback);
       } catch (err: any) {
         const rawMsg = err?.message || "";
-        const friendly = rawMsg.includes("GOOGLE_CLIENT_SECRET")
+        const friendly = rawMsg.includes("not found (404)") || rawMsg.includes("failed (500)")
+          ? rawMsg
+          : rawMsg.includes("GOOGLE_CLIENT_SECRET")
           ? "Google credentials need setup. See the Google Setup Check panel above for instructions."
           : rawMsg.includes("popup") || rawMsg.includes("cancelled")
           ? "Authorization was cancelled. Click Connect to try again."

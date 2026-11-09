@@ -247,7 +247,9 @@ export default function CalendarPage() {
     } catch (err: any) {
       console.warn("Google Calendar connect error:", err);
       const rawMsg = err?.message || "";
-      const friendlyMessage = rawMsg.includes("GOOGLE_CLIENT_SECRET")
+      const friendlyMessage = rawMsg.includes("not found (404)") || rawMsg.includes("failed (500)")
+        ? rawMsg
+        : rawMsg.includes("GOOGLE_CLIENT_SECRET")
         ? "Google credentials require configuration. Check Settings -> Google Setup Check to view setup status."
         : rawMsg.includes("popup") || rawMsg.includes("cancelled")
         ? "Google authorization was cancelled. Click Retry to connect."

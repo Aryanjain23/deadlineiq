@@ -13,8 +13,9 @@ import {
   Play,
   Copy,
   Check,
+  Activity,
 } from "lucide-react";
-import { testGoogleConnection } from "@/lib/googleAuth";
+import { testGoogleConnection, checkBackendHealth } from "@/lib/googleAuth";
 
 export interface GoogleSetupDiagnostics {
   clientIdConfigured: boolean;
@@ -47,17 +48,48 @@ interface TestResult {
   errorCode?: string;
 }
 
+interface BackendHealthState {
+  checking: boolean;
+  ok?: boolean;
+  status?: number;
+  error?: string;
+  timestamp?: string;
+}
+
 export default function GoogleSetupCheckCard({ userUid }: GoogleSetupCheckCardProps) {
   const [diagnostics, setDiagnostics] = useState<GoogleSetupDiagnostics | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [backendHealth, setBackendHealth] = useState<BackendHealthState>({ checking: false });
 
   const [gmailTest, setGmailTest] = useState<TestResult>({ testing: false });
   const [calendarTest, setCalendarTest] = useState<TestResult>({ testing: false });
 
   const fetchCheck = useCallback(async () => {
     setIsLoading(true);
+    setBackendHealth((prev) => ({ ...prev, checking: true }));
+
+    // 1. Check Backend Health
+    try {
+      const health = await checkBackendHealth();
+      setBackendHealth({
+        checking: false,
+        ok: health.ok,
+        status: health.status,
+        error: health.error,
+        timestamp: health.timestamp,
+      });
+    } catch (hErr: any) {
+      setBackendHealth({
+        checking: false,
+        ok: false,
+        status: 0,
+        error: hErr?.message || "Health check failed",
+      });
+    }
+
+    // 2. Fetch Google Setup Diagnostics
     try {
       const res = await fetch(`/api/google/oauth/setup-check?uid=${encodeURIComponent(userUid || "")}`);
       if (res.ok) {
@@ -65,6 +97,9 @@ export default function GoogleSetupCheckCard({ userUid }: GoogleSetupCheckCardPr
         if (data.diagnostics) {
           setDiagnostics(data.diagnostics);
         }
+      } else {
+        const errJson = await res.json().catch(() => ({}));
+        console.warn(`Setup check returned HTTP ${res.status}:`, errJson);
       }
     } catch (err) {
       console.warn("Setup check error:", err);
@@ -126,6 +161,7 @@ export default function GoogleSetupCheckCard({ userUid }: GoogleSetupCheckCardPr
   };
 
   const allConfigured = Boolean(
+    backendHealth.ok &&
     diagnostics?.clientIdConfigured &&
     diagnostics?.clientSecretConfigured &&
     diagnostics?.redirectUriConfigured
@@ -156,11 +192,11 @@ export default function GoogleSetupCheckCard({ userUid }: GoogleSetupCheckCardPr
                   ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/20"
                   : "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/20"
               }`}>
-                {allConfigured ? "Server Credentials Configured" : "Credentials Action Needed"}
+                {allConfigured ? "Backend & Server Credentials OK" : "Action Needed"}
               </span>
             </div>
             <p className="text-[11px] text-slate-500 dark:text-text-muted mt-0.5">
-              Live diagnostics of server credentials, exact redirect URIs, granted scopes, and active OAuth refresh tokens.
+              Live diagnostics of backend routes, server credentials, exact redirect URIs, granted scopes, and active OAuth refresh tokens.
             </p>
           </div>
         </div>
@@ -189,200 +225,214 @@ export default function GoogleSetupCheckCard({ userUid }: GoogleSetupCheckCardPr
       </div>
 
       {/* Grid of Diagnostic Items */}
-      {diagnostics && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {/* 1. Client ID */}
-          <div className="p-3 rounded-xl border border-slate-200/80 dark:border-border bg-slate-50/50 dark:bg-[#0c101a] space-y-1.5">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-mono font-medium uppercase text-slate-500 flex items-center gap-1.5">
-                <KeyRound size={12} className="text-blue-500" />
-                <span>GOOGLE_CLIENT_ID</span>
-              </span>
-              {diagnostics.clientIdConfigured ? (
-                <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium text-emerald-600 dark:text-emerald-400">
-                  <CheckCircle2 size={11} /> Present
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium text-rose-600 dark:text-rose-400">
-                  <AlertCircle size={11} /> Missing
-                </span>
-              )}
-            </div>
-            <p className="text-[11px] text-slate-600 dark:text-text-muted leading-relaxed">
-              {diagnostics.clientIdConfigured
-                ? `Active on server (Prefix: ${diagnostics.clientIdPrefix})`
-                : "Missing on server. Add GOOGLE_CLIENT_ID in your environment variables."}
-            </p>
-          </div>
-
-          {/* 2. Client Secret */}
-          <div className="p-3 rounded-xl border border-slate-200/80 dark:border-border bg-slate-50/50 dark:bg-[#0c101a] space-y-1.5">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-mono font-medium uppercase text-slate-500 flex items-center gap-1.5">
-                <KeyRound size={12} className="text-purple-500" />
-                <span>GOOGLE_CLIENT_SECRET</span>
-              </span>
-              {diagnostics.clientSecretConfigured ? (
-                <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium text-emerald-600 dark:text-emerald-400">
-                  <CheckCircle2 size={11} /> Present
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium text-rose-600 dark:text-rose-400">
-                  <AlertCircle size={11} /> Missing
-                </span>
-              )}
-            </div>
-            <p className="text-[11px] text-slate-600 dark:text-text-muted leading-relaxed">
-              {diagnostics.clientSecretConfigured
-                ? "Client Secret is securely loaded on the server (never exposed to browser)."
-                : "Missing on server. Add GOOGLE_CLIENT_SECRET to enable OAuth code exchange."}
-            </p>
-          </div>
-
-          {/* 3. Redirect URI */}
-          <div className="p-3 rounded-xl border border-slate-200/80 dark:border-border bg-slate-50/50 dark:bg-[#0c101a] space-y-1.5">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-mono font-medium uppercase text-slate-500 flex items-center gap-1.5">
-                <ExternalLink size={12} className="text-indigo-500" />
-                <span>REDIRECT_URI</span>
-              </span>
-              <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium text-emerald-600 dark:text-emerald-400">
-                <CheckCircle2 size={11} /> Server-Driven
-              </span>
-            </div>
-            <p className="text-[11px] font-mono text-slate-600 dark:text-text-muted truncate" title={serverRedirect}>
-              {serverRedirect}
-            </p>
-          </div>
-
-          {/* 4. Gmail Connection & Scope */}
-          <div className="p-3 rounded-xl border border-slate-200/80 dark:border-border bg-slate-50/50 dark:bg-[#0c101a] space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-mono font-medium uppercase text-slate-500 flex items-center gap-1.5">
-                <Mail size={12} className="text-rose-500" />
-                <span>Gmail (gmail.readonly)</span>
-              </span>
-              {diagnostics.gmailConnected ? (
-                <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium text-emerald-600 dark:text-emerald-400">
-                  <CheckCircle2 size={11} /> Connected
-                </span>
-              ) : diagnostics.gmailRefreshTokenStored ? (
-                <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium text-amber-600 dark:text-amber-400">
-                  <AlertCircle size={11} /> Scope Missing
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium text-slate-400">
-                  Not Connected
-                </span>
-              )}
-            </div>
-
-            <div className="text-[11px] text-slate-600 dark:text-text-muted space-y-1">
-              <div>Refresh Token: {diagnostics.gmailRefreshTokenStored ? "Stored" : "Not Stored"}</div>
-              <div>Scope Granted: {diagnostics.gmailScopeGranted ? "Yes" : "No"}</div>
-              {diagnostics.gmailLastError && (
-                <div className="text-[10px] text-rose-500 font-mono leading-tight">
-                  Last error: {diagnostics.gmailLastError} {diagnostics.gmailLastErrorCode ? `(${diagnostics.gmailLastErrorCode})` : ""}
-                </div>
-              )}
-            </div>
-
-            {/* Test Connection Button */}
-            <div className="pt-1">
-              <button
-                type="button"
-                onClick={handleTestGmail}
-                disabled={gmailTest.testing}
-                className="w-full py-1.5 px-2.5 rounded-lg border border-slate-200 dark:border-border hover:bg-slate-100 dark:hover:bg-surface-elevated text-[11px] font-medium text-slate-700 dark:text-slate-300 transition-colors cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
-              >
-                {gmailTest.testing ? <RefreshCw size={11} className="animate-spin" /> : <Play size={11} />}
-                <span>{gmailTest.testing ? "Testing Gmail API..." : "Test Gmail Connection"}</span>
-              </button>
-
-              {gmailTest.message && (
-                <div className={`mt-1.5 p-2 rounded-lg text-[10px] font-mono border ${
-                  gmailTest.success
-                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
-                    : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20"
-                }`}>
-                  <div className="font-semibold">{gmailTest.success ? "PASS: " : "FAIL: "}</div>
-                  <div className="break-words mt-0.5">{gmailTest.message}</div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* 5. Calendar Connection & Scope */}
-          <div className="p-3 rounded-xl border border-slate-200/80 dark:border-border bg-slate-50/50 dark:bg-[#0c101a] space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-mono font-medium uppercase text-slate-500 flex items-center gap-1.5">
-                <CalendarDays size={12} className="text-blue-500" />
-                <span>Calendar (calendar.events)</span>
-              </span>
-              {diagnostics.calendarConnected ? (
-                <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium text-emerald-600 dark:text-emerald-400">
-                  <CheckCircle2 size={11} /> Connected
-                </span>
-              ) : diagnostics.calendarRefreshTokenStored ? (
-                <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium text-amber-600 dark:text-amber-400">
-                  <AlertCircle size={11} /> Scope Missing
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium text-slate-400">
-                  Not Connected
-                </span>
-              )}
-            </div>
-
-            <div className="text-[11px] text-slate-600 dark:text-text-muted space-y-1">
-              <div>Refresh Token: {diagnostics.calendarRefreshTokenStored ? "Stored" : "Not Stored"}</div>
-              <div>Scope Granted: {diagnostics.calendarScopeGranted ? "Yes" : "No"}</div>
-              {diagnostics.calendarLastError && (
-                <div className="text-[10px] text-rose-500 font-mono leading-tight">
-                  Last error: {diagnostics.calendarLastError} {diagnostics.calendarLastErrorCode ? `(${diagnostics.calendarLastErrorCode})` : ""}
-                </div>
-              )}
-            </div>
-
-            {/* Test Connection Button */}
-            <div className="pt-1">
-              <button
-                type="button"
-                onClick={handleTestCalendar}
-                disabled={calendarTest.testing}
-                className="w-full py-1.5 px-2.5 rounded-lg border border-slate-200 dark:border-border hover:bg-slate-100 dark:hover:bg-surface-elevated text-[11px] font-medium text-slate-700 dark:text-slate-300 transition-colors cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
-              >
-                {calendarTest.testing ? <RefreshCw size={11} className="animate-spin" /> : <Play size={11} />}
-                <span>{calendarTest.testing ? "Testing Calendar API..." : "Test Calendar Connection"}</span>
-              </button>
-
-              {calendarTest.message && (
-                <div className={`mt-1.5 p-2 rounded-lg text-[10px] font-mono border ${
-                  calendarTest.success
-                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
-                    : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20"
-                }`}>
-                  <div className="font-semibold">{calendarTest.success ? "PASS: " : "FAIL: "}</div>
-                  <div className="break-words mt-0.5">{calendarTest.message}</div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* 6. Architecture & Client ID Summary */}
-          <div className="p-3 rounded-xl border border-slate-200/80 dark:border-border bg-slate-50/50 dark:bg-[#0c101a] space-y-1.5">
-            <span className="text-[10px] font-mono font-medium uppercase text-slate-500 block">
-              OAuth Architecture Note
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {/* Row 0: Backend Health Check */}
+        <div className="p-3 rounded-xl border border-slate-200/80 dark:border-border bg-slate-50/50 dark:bg-[#0c101a] space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-mono font-medium uppercase text-slate-500 flex items-center gap-1.5">
+              <Activity size={12} className="text-emerald-500" />
+              <span>Backend Health (/api/health)</span>
             </span>
-            <p className="text-[11px] text-slate-600 dark:text-text-muted leading-relaxed">
-              The app now uses a standard, server-driven OAuth authorization code flow. All code exchanges, token refreshes, and API calls occur securely with Google without relying on browser client secrets or fragile popup GIS postmessage URIs.
+            {backendHealth.ok ? (
+              <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium text-emerald-600 dark:text-emerald-400">
+                <CheckCircle2 size={11} /> PASS (HTTP 200)
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium text-rose-600 dark:text-rose-400">
+                <AlertCircle size={11} /> FAIL ({backendHealth.status || "Unreachable"})
+              </span>
+            )}
+          </div>
+          <p className="text-[11px] text-slate-600 dark:text-text-muted leading-relaxed">
+            {backendHealth.ok
+              ? "Express backend routes are online, active, and serving requests."
+              : backendHealth.error || "Backend route /api/health not found. The server may need a restart."}
+          </p>
+          {backendHealth.timestamp && (
+            <p className="text-[10px] text-slate-400 font-mono">
+              Heartbeat: {new Date(backendHealth.timestamp).toLocaleTimeString()}
             </p>
-            <div className="text-[10px] text-slate-500 dark:text-text-secondary pt-1 font-mono">
-              VITE_GOOGLE_CLIENT_ID is no longer required in frontend bundles.
-            </div>
+          )}
+        </div>
+
+        {/* 1. Client ID */}
+        <div className="p-3 rounded-xl border border-slate-200/80 dark:border-border bg-slate-50/50 dark:bg-[#0c101a] space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-mono font-medium uppercase text-slate-500 flex items-center gap-1.5">
+              <KeyRound size={12} className="text-blue-500" />
+              <span>GOOGLE_CLIENT_ID</span>
+            </span>
+            {diagnostics?.clientIdConfigured ? (
+              <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium text-emerald-600 dark:text-emerald-400">
+                <CheckCircle2 size={11} /> Present
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium text-rose-600 dark:text-rose-400">
+                <AlertCircle size={11} /> Missing
+              </span>
+            )}
+          </div>
+          <p className="text-[11px] text-slate-600 dark:text-text-muted leading-relaxed">
+            {diagnostics?.clientIdConfigured
+              ? `Active on server (Prefix: ${diagnostics.clientIdPrefix})`
+              : "Missing on server. Add GOOGLE_CLIENT_ID in your environment variables."}
+          </p>
+        </div>
+
+        {/* 2. Client Secret */}
+        <div className="p-3 rounded-xl border border-slate-200/80 dark:border-border bg-slate-50/50 dark:bg-[#0c101a] space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-mono font-medium uppercase text-slate-500 flex items-center gap-1.5">
+              <KeyRound size={12} className="text-purple-500" />
+              <span>GOOGLE_CLIENT_SECRET</span>
+            </span>
+            {diagnostics?.clientSecretConfigured ? (
+              <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium text-emerald-600 dark:text-emerald-400">
+                <CheckCircle2 size={11} /> Present
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium text-rose-600 dark:text-rose-400">
+                <AlertCircle size={11} /> Missing
+              </span>
+            )}
+          </div>
+          <p className="text-[11px] text-slate-600 dark:text-text-muted leading-relaxed">
+            {diagnostics?.clientSecretConfigured
+              ? "Client Secret is securely loaded on the server (never exposed to browser)."
+              : "Missing on server. Add GOOGLE_CLIENT_SECRET to enable OAuth code exchange."}
+          </p>
+        </div>
+
+        {/* 3. Redirect URI */}
+        <div className="p-3 rounded-xl border border-slate-200/80 dark:border-border bg-slate-50/50 dark:bg-[#0c101a] space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-mono font-medium uppercase text-slate-500 flex items-center gap-1.5">
+              <ExternalLink size={12} className="text-indigo-500" />
+              <span>REDIRECT_URI</span>
+            </span>
+            <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium text-emerald-600 dark:text-emerald-400">
+              <CheckCircle2 size={11} /> Server-Driven
+            </span>
+          </div>
+          <p className="text-[11px] font-mono text-slate-600 dark:text-text-muted truncate" title={serverRedirect}>
+            {serverRedirect}
+          </p>
+        </div>
+
+        {/* 4. Gmail Connection & Scope */}
+        <div className="p-3 rounded-xl border border-slate-200/80 dark:border-border bg-slate-50/50 dark:bg-[#0c101a] space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-mono font-medium uppercase text-slate-500 flex items-center gap-1.5">
+              <Mail size={12} className="text-rose-500" />
+              <span>Gmail (gmail.readonly)</span>
+            </span>
+            {diagnostics?.gmailConnected ? (
+              <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium text-emerald-600 dark:text-emerald-400">
+                <CheckCircle2 size={11} /> Connected
+              </span>
+            ) : diagnostics?.gmailRefreshTokenStored ? (
+              <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium text-amber-600 dark:text-amber-400">
+                <AlertCircle size={11} /> Scope Missing
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium text-slate-400">
+                Not Connected
+              </span>
+            )}
+          </div>
+
+          <div className="text-[11px] text-slate-600 dark:text-text-muted space-y-1">
+            <div>Refresh Token: {diagnostics?.gmailRefreshTokenStored ? "Stored" : "Not Stored"}</div>
+            <div>Scope Granted: {diagnostics?.gmailScopeGranted ? "Yes" : "No"}</div>
+            {diagnostics?.gmailLastError && (
+              <div className="text-[10px] text-rose-500 font-mono leading-tight">
+                Last error: {diagnostics.gmailLastError} {diagnostics.gmailLastErrorCode ? `(${diagnostics.gmailLastErrorCode})` : ""}
+              </div>
+            )}
+          </div>
+
+          {/* Test Connection Button */}
+          <div className="pt-1">
+            <button
+              type="button"
+              onClick={handleTestGmail}
+              disabled={gmailTest.testing}
+              className="w-full py-1.5 px-2.5 rounded-lg border border-slate-200 dark:border-border hover:bg-slate-100 dark:hover:bg-surface-elevated text-[11px] font-medium text-slate-700 dark:text-slate-300 transition-colors cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
+            >
+              {gmailTest.testing ? <RefreshCw size={11} className="animate-spin" /> : <Play size={11} />}
+              <span>{gmailTest.testing ? "Testing Gmail API..." : "Test Gmail Connection"}</span>
+            </button>
+
+            {gmailTest.message && (
+              <div className={`mt-1.5 p-2 rounded-lg text-[10px] font-mono border ${
+                gmailTest.success
+                  ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                  : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20"
+              }`}>
+                <div className="font-semibold">{gmailTest.success ? "PASS: " : "FAIL: "}</div>
+                <div className="break-words mt-0.5">{gmailTest.message}</div>
+              </div>
+            )}
           </div>
         </div>
-      )}
+
+        {/* 5. Calendar Connection & Scope */}
+        <div className="p-3 rounded-xl border border-slate-200/80 dark:border-border bg-slate-50/50 dark:bg-[#0c101a] space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-mono font-medium uppercase text-slate-500 flex items-center gap-1.5">
+              <CalendarDays size={12} className="text-blue-500" />
+              <span>Calendar (calendar.events)</span>
+            </span>
+            {diagnostics?.calendarConnected ? (
+              <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium text-emerald-600 dark:text-emerald-400">
+                <CheckCircle2 size={11} /> Connected
+              </span>
+            ) : diagnostics?.calendarRefreshTokenStored ? (
+              <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium text-amber-600 dark:text-amber-400">
+                <AlertCircle size={11} /> Scope Missing
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium text-slate-400">
+                Not Connected
+              </span>
+            )}
+          </div>
+
+          <div className="text-[11px] text-slate-600 dark:text-text-muted space-y-1">
+            <div>Refresh Token: {diagnostics?.calendarRefreshTokenStored ? "Stored" : "Not Stored"}</div>
+            <div>Scope Granted: {diagnostics?.calendarScopeGranted ? "Yes" : "No"}</div>
+            {diagnostics?.calendarLastError && (
+              <div className="text-[10px] text-rose-500 font-mono leading-tight">
+                Last error: {diagnostics.calendarLastError} {diagnostics.calendarLastErrorCode ? `(${diagnostics.calendarLastErrorCode})` : ""}
+              </div>
+            )}
+          </div>
+
+          {/* Test Connection Button */}
+          <div className="pt-1">
+            <button
+              type="button"
+              onClick={handleTestCalendar}
+              disabled={calendarTest.testing}
+              className="w-full py-1.5 px-2.5 rounded-lg border border-slate-200 dark:border-border hover:bg-slate-100 dark:hover:bg-surface-elevated text-[11px] font-medium text-slate-700 dark:text-slate-300 transition-colors cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
+            >
+              {calendarTest.testing ? <RefreshCw size={11} className="animate-spin" /> : <Play size={11} />}
+              <span>{calendarTest.testing ? "Testing Calendar API..." : "Test Calendar Connection"}</span>
+            </button>
+
+            {calendarTest.message && (
+              <div className={`mt-1.5 p-2 rounded-lg text-[10px] font-mono border ${
+                calendarTest.success
+                  ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                  : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20"
+              }`}>
+                <div className="font-semibold">{calendarTest.success ? "PASS: " : "FAIL: "}</div>
+                <div className="break-words mt-0.5">{calendarTest.message}</div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
 
       {/* Expandable Cloud Console Registration Guide */}
       {isExpanded && (

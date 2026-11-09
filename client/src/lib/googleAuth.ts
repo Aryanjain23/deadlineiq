@@ -8,6 +8,7 @@
  */
 
 import appletConfig from "../../../firebase-applet-config.json";
+import { getFirebaseAuth } from "./firebase/auth";
 import {
   setGoogleAccessToken,
   getGoogleAccessToken,
@@ -46,6 +47,70 @@ export function isGoogleOAuthConfigured(): boolean {
 }
 
 /**
+ * Checks backend health at /api/health.
+ */
+export async function checkBackendHealth(): Promise<{
+  ok: boolean;
+  status: number;
+  timestamp?: string;
+  error?: string;
+}> {
+  try {
+    const res = await fetch("/api/health");
+    if (res.ok) {
+      const data = await res.json().catch(() => ({}));
+      return { ok: true, status: res.status, timestamp: data?.timestamp };
+    }
+    return {
+      ok: false,
+      status: res.status,
+      error: `Backend route /api/health not found (${res.status}). The server may need a restart.`,
+    };
+  } catch (err: any) {
+    return {
+      ok: false,
+      status: 0,
+      error: `Backend route /api/health unreachable (${err?.message || "Network Error"}). The server may need a restart.`,
+    };
+  }
+}
+
+/**
+ * Helper to handle backend responses with clear 404/500 diagnostic errors.
+ */
+async function parseBackendResponse(res: Response, endpoint: string): Promise<any> {
+  const text = await res.text();
+  let data: any = null;
+  try {
+    data = JSON.parse(text);
+  } catch {}
+
+  if (!res.ok) {
+    if (res.status === 404) {
+      const msg = data?.error || `Backend route ${endpoint} not found (404). The server may need a restart.`;
+      const err: any = new Error(msg);
+      err.status = 404;
+      err.endpoint = endpoint;
+      throw err;
+    }
+    if (res.status === 500) {
+      const msg = data?.error || `Backend route ${endpoint} failed (500). Please check server logs.`;
+      const err: any = new Error(msg);
+      err.status = 500;
+      err.endpoint = endpoint;
+      throw err;
+    }
+    const msg = data?.error || data?.message || `Backend route ${endpoint} returned HTTP ${res.status}`;
+    const err: any = new Error(msg);
+    err.status = res.status;
+    err.code = data?.code;
+    throw err;
+  }
+
+  return data || {};
+}
+
+/**
  * Gets a valid access token for the given user and service.
  * Checks in-memory cache first, then calls /api/google/oauth/token (which automatically
  * refreshes using server-stored refresh tokens and retries on 401).
@@ -61,11 +126,12 @@ export async function getValidGoogleAccessToken(
   if (cached) return cached;
 
   // 2. Fetch or refresh from server token endpoint
+  const endpoint = `/api/google/oauth/token?uid=${encodeURIComponent(userUid)}&service=${service}`;
   try {
-    const res = await fetch(`/api/google/oauth/token?uid=${encodeURIComponent(userUid)}&service=${service}`);
+    const res = await fetch(endpoint);
     if (res.ok) {
       const data = await res.json();
-      if (data.success && data.accessToken) {
+      if ((data.success || data.ok) && data.accessToken) {
         if (service === "gmail") {
           setGmailAccessToken(data.accessToken, 3599);
         } else {
@@ -84,6 +150,8 @@ export async function getValidGoogleAccessToken(
         saveGmailMeta(userUid, { ...gmMeta, isConnected: false });
         clearGmailAccessToken();
       }
+    } else {
+      console.warn(`[OAuth Token] Failed ${endpoint}: HTTP ${res.status}`);
     }
   } catch (err) {
     console.warn(`Error getting ${service} access token from server:`, err);
@@ -139,7 +207,17 @@ export async function openGoogleAuthPopup(
   const left = window.screenX + Math.max(0, (window.outerWidth - width) / 2);
   const top = window.screenY + Math.max(0, (window.outerHeight - height) / 2);
 
-  const startUrl = `/api/auth/google/start?service=${encodeURIComponent(service)}&uid=${encodeURIComponent(userUid)}`;
+  // Obtain Firebase ID token if available to authenticate the start request
+  let idToken = "";
+  try {
+    const authInstance = getFirebaseAuth();
+    if (authInstance?.currentUser) {
+      idToken = await authInstance.currentUser.getIdToken().catch(() => "");
+    }
+  } catch {}
+
+  const tokenParam = idToken ? `&token=${encodeURIComponent(idToken)}` : "";
+  const startUrl = `/api/auth/google/start?service=${encodeURIComponent(service)}&uid=${encodeURIComponent(userUid)}${tokenParam}`;
 
   const popup = window.open(
     startUrl,
@@ -164,8 +242,9 @@ export async function openGoogleAuthPopup(
       isFinished = true;
 
       if (!event.data.ok) {
-        const errMessage = event.data.error || "Google authorization failed.";
-        reject(new Error(errMessage));
+        const rawErr = event.data.error || "Google authorization failed.";
+        const rawDesc = event.data.error_description ? ` (${event.data.error_description})` : "";
+        reject(new Error(`${rawErr}${rawDesc}`));
         return;
       }
 
@@ -277,43 +356,55 @@ export async function disconnectUnifiedGoogleAccess(
   }
 
   try {
-    await fetch("/api/google/oauth/revoke", {
+    const res = await fetch("/api/google/disconnect", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ userUid, service }),
     });
+    await parseBackendResponse(res, "/api/google/disconnect");
   } catch (err) {
-    console.warn("Server revoke request notice:", err);
+    console.warn("Server disconnect notice:", err);
   }
 }
 
 /**
  * Performs a live test of the user's connection to Gmail or Calendar.
- * Makes a real API call on the server to verify active token and scopes.
+ * Calls /api/google/test?service=... to verify active token and scopes.
  */
 export async function testGoogleConnection(
   userUid: string,
   service: "gmail" | "calendar"
 ): Promise<{
-  success: boolean;
+  ok: boolean;
+  success?: boolean;
   message: string;
   error?: string;
   errorCode?: string;
   details?: any;
 }> {
+  const endpoint = `/api/google/test?service=${encodeURIComponent(service)}`;
   try {
-    const res = await fetch("/api/google/oauth/test-connection", {
+    const res = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ uid: userUid, service }),
+      body: JSON.stringify({ userUid, uid: userUid, service }),
     });
-    return await res.json();
+    const data = await parseBackendResponse(res, endpoint);
+    return {
+      ok: Boolean(data.ok || data.success),
+      success: Boolean(data.ok || data.success),
+      message: data.message || (data.ok ? "Connection test passed!" : "Connection test failed."),
+      error: data.error,
+      errorCode: data.errorCode,
+      details: data.details,
+    };
   } catch (err: any) {
     return {
+      ok: false,
       success: false,
-      message: err?.message || "Failed to contact connection verification endpoint.",
+      message: err?.message || `Backend route ${endpoint} failed. The server may need a restart.`,
       error: err?.message,
-      errorCode: "network_error",
+      errorCode: err?.status === 404 ? "ROUTE_404" : "network_error",
     };
   }
 }
