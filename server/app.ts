@@ -198,8 +198,10 @@ app.post("/api/google/oauth/exchange-code", async (req, res) => {
       return res.status(400).json({ error: "Authorization code and userUid are required." });
     }
 
-    // Resolve OAuth Client ID
-    let clientId = process.env.VITE_GOOGLE_CALENDAR_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || "";
+    // Resolve OAuth Client ID & Secret
+    let clientId = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CALENDAR_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || "";
+    let clientSecret = process.env.GOOGLE_CLIENT_SECRET || process.env.VITE_GOOGLE_CLIENT_SECRET || "";
+
     if (!clientId) {
       try {
         const cfgPath = path.resolve(process.cwd(), "firebase-applet-config.json");
@@ -211,25 +213,38 @@ app.post("/api/google/oauth/exchange-code", async (req, res) => {
     }
 
     if (!clientId) {
-      return res.status(500).json({ error: "Google OAuth Client ID is missing on server." });
+      return res.status(500).json({
+        error: "GOOGLE_CLIENT_ID is missing. Please set GOOGLE_CLIENT_ID in .env, .dev.env.json, or environment variables."
+      });
     }
 
-    // Exchange authorization code for tokens
+    if (!clientSecret) {
+      return res.status(400).json({
+        error: "GOOGLE_CLIENT_SECRET is missing. Please set GOOGLE_CLIENT_SECRET in .env, .dev.env.json, or Vercel Environment Variables. Get this secret from your Google Cloud Console -> APIs & Services -> Credentials."
+      });
+    }
+
+    // Exchange authorization code for tokens including client_secret
+    const params = new URLSearchParams({
+      code,
+      client_id: clientId,
+      client_secret: clientSecret,
+      grant_type: "authorization_code",
+      redirect_uri: "postmessage",
+    });
+
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        code,
-        client_id: clientId,
-        grant_type: "authorization_code",
-        redirect_uri: "postmessage",
-      }).toString(),
+      body: params.toString(),
     });
 
     const tokenData = await tokenRes.json();
     if (!tokenRes.ok || tokenData.error) {
       console.warn("Google code exchange error:", tokenData);
-      return res.status(400).json({ error: tokenData.error_description || tokenData.error || "Failed to exchange authorization code." });
+      return res.status(400).json({
+        error: tokenData.error_description || tokenData.error || "Failed to exchange authorization code."
+      });
     }
 
     const { access_token, refresh_token, expires_in, scope } = tokenData;
@@ -280,10 +295,16 @@ app.post("/api/google/oauth/refresh-token", async (req, res) => {
 
     const stored = getServerOAuthToken(userUid, service as any);
     if (!stored || !stored.refreshToken) {
-      return res.status(401).json({ success: false, error: "reconnect_required", message: "No refresh token stored. Reconnection required." });
+      return res.status(401).json({
+        success: false,
+        error: "reconnect_required",
+        message: "No refresh token stored. Reconnection required."
+      });
     }
 
-    let clientId = process.env.VITE_GOOGLE_CALENDAR_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || "";
+    let clientId = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CALENDAR_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || "";
+    let clientSecret = process.env.GOOGLE_CLIENT_SECRET || process.env.VITE_GOOGLE_CLIENT_SECRET || "";
+
     if (!clientId) {
       try {
         const cfgPath = path.resolve(process.cwd(), "firebase-applet-config.json");
@@ -294,11 +315,18 @@ app.post("/api/google/oauth/refresh-token", async (req, res) => {
       } catch {}
     }
 
+    if (!clientSecret) {
+      return res.status(400).json({
+        error: "GOOGLE_CLIENT_SECRET is missing. Please set GOOGLE_CLIENT_SECRET in environment variables."
+      });
+    }
+
     const refreshRes = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
         client_id: clientId,
+        client_secret: clientSecret,
         refresh_token: stored.refreshToken,
         grant_type: "refresh_token",
       }).toString(),
@@ -309,7 +337,11 @@ app.post("/api/google/oauth/refresh-token", async (req, res) => {
       console.warn(`Refresh token failed for ${userUid} (${service}):`, refreshData);
       if (refreshData.error === "invalid_grant" || refreshData.error === "unauthorized_client") {
         deleteServerOAuthToken(userUid, service as any);
-        return res.status(401).json({ success: false, error: "reconnect_required", message: "Google connection expired or was revoked. Please reconnect." });
+        return res.status(401).json({
+          success: false,
+          error: "reconnect_required",
+          message: "Google connection expired or was revoked. Please reconnect."
+        });
       }
       return res.status(400).json({ error: refreshData.error_description || "Token refresh failed." });
     }

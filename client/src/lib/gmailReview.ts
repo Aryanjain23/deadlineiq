@@ -9,6 +9,8 @@
  */
 
 import { getGmailAccessToken, requestGmailAccess, clearGmailAccessToken, getGmailMeta, saveGmailMeta } from "./gmail";
+import { createDeadline, updateDeadline, deleteDeadline, getDeadlines } from "./services/deadlineService";
+import type { Deadline, ImportanceLevel } from "./deadlines";
 
 export interface SenderRules {
   trustedSenders: string[]; // Email or domain strings
@@ -38,9 +40,15 @@ export interface GmailReviewItem {
   confidence: number; // 0 to 1
   reason: string;
   course: string | null;
-  status: "pending" | "added" | "dismissed";
+  status: "pending" | "added" | "auto-added" | "dismissed";
+  createdDeadlineId?: string;
   extracted: ExtractedDeadlineDetails;
   createdAt: string;
+}
+
+export interface GmailAutoSettings {
+  autoAddEnabled: boolean; // default true
+  autoAddThreshold: number; // default 0.9
 }
 
 export interface GmailSyncStats {
@@ -50,9 +58,38 @@ export interface GmailSyncStats {
   relevantCount: number;
   maybeCount: number;
   ignoredCount: number;
+  autoAddedCount: number;
   pendingReviewCount: number;
   feedback: string;
   logs: string[];
+}
+
+/**
+ * Retrieves persisted auto-add settings for a user UID.
+ */
+export function getGmailAutoSettings(uid: string): GmailAutoSettings {
+  const key = getStorageKey(uid, "auto_settings");
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        autoAddEnabled: typeof parsed.autoAddEnabled === "boolean" ? parsed.autoAddEnabled : true,
+        autoAddThreshold: typeof parsed.autoAddThreshold === "number" ? parsed.autoAddThreshold : 0.9,
+      };
+    }
+  } catch {}
+  return { autoAddEnabled: true, autoAddThreshold: 0.9 };
+}
+
+/**
+ * Persists auto-add settings for a user UID.
+ */
+export function saveGmailAutoSettings(uid: string, settings: GmailAutoSettings): void {
+  const key = getStorageKey(uid, "auto_settings");
+  try {
+    localStorage.setItem(key, JSON.stringify(settings));
+  } catch {}
 }
 
 /**
@@ -63,7 +100,6 @@ export function convertHtmlToPlainText(html: string): string {
   try {
     if (typeof DOMParser !== "undefined") {
       const doc = new DOMParser().parseFromString(html, "text/html");
-      // Remove scripts, styles, and hidden elements
       const elements = doc.querySelectorAll("script, style, noscript, iframe, svg");
       elements.forEach((el) => el.remove());
       const text = doc.body?.textContent || doc.body?.innerText || "";
@@ -71,7 +107,6 @@ export function convertHtmlToPlainText(html: string): string {
     }
   } catch {}
 
-  // Fallback regex HTML stripper
   return html
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
@@ -177,7 +212,6 @@ export function setSenderRule(
   const rules = getSenderRules(uid);
   const cleanSender = sender.toLowerCase().trim();
 
-  // Remove existing occurrences
   rules.trustedSenders = rules.trustedSenders.filter((s) => s.toLowerCase() !== cleanSender);
   rules.blockedSenders = rules.blockedSenders.filter((s) => s.toLowerCase() !== cleanSender);
 
@@ -192,7 +226,39 @@ export function setSenderRule(
 }
 
 /**
- * Stage 1: Smart Gmail Message Fetcher
+ * Reverts an auto-added deadline item back to pending review and deletes its created deadline.
+ */
+export async function undoAutoAdd(userUid: string, itemId: string): Promise<GmailReviewItem[]> {
+  const inbox = getReviewInbox(userUid);
+  const target = inbox.find((i) => i.id === itemId);
+
+  if (target && target.createdDeadlineId) {
+    try {
+      await deleteDeadline(userUid, target.createdDeadlineId);
+    } catch (err) {
+      console.warn("Failed to delete auto-created deadline during undo:", err);
+    }
+  }
+
+  const updated = inbox.map((i) =>
+    i.id === itemId ? { ...i, status: "pending" as const, createdDeadlineId: undefined } : i
+  );
+  saveReviewInbox(userUid, updated);
+  return updated;
+}
+
+/**
+ * Restores a dismissed email back to pending review.
+ */
+export function restoreDismissed(userUid: string, itemId: string): GmailReviewItem[] {
+  const inbox = getReviewInbox(userUid);
+  const updated = inbox.map((i) => (i.id === itemId ? { ...i, status: "pending" as const } : i));
+  saveReviewInbox(userUid, updated);
+  return updated;
+}
+
+/**
+ * Stage 1: Smart Gmail Message Fetcher (Last 60 days, multi-category)
  */
 export async function fetchGmailMessagesSmart(
   accessToken: string,
@@ -212,7 +278,6 @@ export async function fetchGmailMessagesSmart(
 }> {
   const logs: string[] = [];
 
-  // Build incremental or 60-day backfill search query
   let dateQuery = "newer_than:60d";
   if (lastSyncTime) {
     try {
@@ -226,14 +291,13 @@ export async function fetchGmailMessagesSmart(
     } catch {}
   }
 
-  // Pre-filter search query across ALL categories
   const searchQuery = `${dateQuery} (assignment OR due OR deadline OR exam OR quiz OR submission OR project OR "last date" OR syllabus OR classroom.google.com OR instructure.com)`;
   logs.push(`[Stage 1] Querying Gmail API: "${searchQuery}"`);
 
   let pageToken: string | undefined = undefined;
   let rawMessageList: Array<{ id: string; threadId: string }> = [];
   let pageCount = 0;
-  const maxPages = 4; // Safety limit: max 4 pages (100 emails)
+  const maxPages = 4;
 
   do {
     pageCount++;
@@ -268,7 +332,6 @@ export async function fetchGmailMessagesSmart(
     return { messages: [], totalFetched: 0, logs };
   }
 
-  // Deduplicate by threadId (keep first seen per thread)
   const seenThreads = new Set<string>();
   const deduplicatedHeaders: Array<{ id: string; threadId: string }> = [];
 
@@ -282,7 +345,6 @@ export async function fetchGmailMessagesSmart(
 
   logs.push(`[Stage 1] Deduplicated into ${deduplicatedHeaders.length} unique email thread(s).`);
 
-  // Fetch full message payload & bodies
   const detailedMessages: Array<{
     id: string;
     threadId: string;
@@ -316,7 +378,6 @@ export async function fetchGmailMessagesSmart(
 
       let fullBodyHtmlOrText = "";
 
-      // Recursive helper to extract plain text or HTML body
       const extractBodyParts = (part: any) => {
         if (!part) return;
         if (part.mimeType === "text/plain" && part.body?.data) {
@@ -349,14 +410,14 @@ export async function fetchGmailMessagesSmart(
         subject,
         from,
         date,
-        bodyText: cleanBodyText.slice(0, 3000), // Cap length for AI efficiency
+        bodyText: cleanBodyText.slice(0, 3000),
       });
     } catch (err) {
       console.warn("Error loading details for message", item.id, err);
     }
   }
 
-  logs.push(`[Stage 1] Successfully loaded full content for ${detailedMessages.length} email(s).`);
+  logs.push(`[Stage 1] Successfully loaded content for ${detailedMessages.length} email(s).`);
   return {
     messages: detailedMessages,
     totalFetched: detailedMessages.length,
@@ -365,7 +426,7 @@ export async function fetchGmailMessagesSmart(
 }
 
 /**
- * Executes full 3-Stage Sync and updates the local Review Inbox.
+ * Executes full 3-Stage Sync, AI triage & Auto-Add pipeline into the Review Inbox.
  */
 export async function syncGmailWithReviewFlow(
   userUid: string,
@@ -382,6 +443,7 @@ export async function syncGmailWithReviewFlow(
 
   const meta = getGmailMeta(userUid);
   const senderRules = getSenderRules(userUid);
+  const autoSettings = getGmailAutoSettings(userUid);
 
   // 1. Fetch emails via Stage 1
   const fetchResult = await fetchGmailMessagesSmart(token, meta.lastSyncTime);
@@ -398,6 +460,7 @@ export async function syncGmailWithReviewFlow(
 
     const currentInbox = getReviewInbox(userUid);
     const pendingCount = currentInbox.filter((i) => i.status === "pending").length;
+    const autoCount = currentInbox.filter((i) => i.status === "auto-added").length;
 
     return {
       success: true,
@@ -406,8 +469,9 @@ export async function syncGmailWithReviewFlow(
       relevantCount: 0,
       maybeCount: 0,
       ignoredCount: 0,
+      autoAddedCount: autoCount,
       pendingReviewCount: pendingCount,
-      feedback: "No academic work found",
+      feedback: "No new academic work found in inbox.",
       logs,
     };
   }
@@ -419,7 +483,6 @@ export async function syncGmailWithReviewFlow(
   for (const m of fetchResult.messages) {
     const senderAddr = extractEmailAddress(m.from);
 
-    // Check if sender is blocked
     const isBlocked = senderRules.blockedSenders.some(
       (b) => senderAddr.includes(b.toLowerCase()) || m.from.toLowerCase().includes(b.toLowerCase())
     );
@@ -458,7 +521,6 @@ export async function syncGmailWithReviewFlow(
     logs.push(`[Stage 2] API call note: ${err}`);
   }
 
-  // Fallback if backend route didn't return results
   if (triageResults.length === 0) {
     triageResults = candidateMessages.map((m) => ({
       id: m.id,
@@ -479,13 +541,17 @@ export async function syncGmailWithReviewFlow(
     }));
   }
 
-  // 4. Merge results into user's Review Inbox
+  // Load existing deadlines for thread deduplication
+  const existingDeadlines = await getDeadlines(userUid);
+
+  // 4. Merge results into user's Review Inbox & apply Auto-Add pipeline
   const existingInbox = getReviewInbox(userUid);
   const existingMap = new Map(existingInbox.map((item) => [item.id, item]));
 
   let relevantCount = 0;
   let maybeCount = 0;
   let ignoredCount = blockedCount;
+  let autoAddedCount = 0;
 
   for (const m of candidateMessages) {
     const tr = triageResults.find((r) => r.id === m.id || r.threadId === m.threadId);
@@ -494,7 +560,6 @@ export async function syncGmailWithReviewFlow(
     let reason = tr?.reason || "Evaluated by Gmail notice analysis.";
     const course = tr?.course || null;
 
-    // Apply sender trust rule boost
     const senderAddr = extractEmailAddress(m.from);
     const isTrusted = senderRules.trustedSenders.some(
       (t) => senderAddr.includes(t.toLowerCase()) || m.from.toLowerCase().includes(t.toLowerCase())
@@ -509,11 +574,6 @@ export async function syncGmailWithReviewFlow(
     else if (verdict === "maybe") maybeCount++;
     else ignoredCount++;
 
-    // Only store items that are relevant or maybe in the Review Inbox
-    if (verdict === "ignore") {
-      continue;
-    }
-
     const sourceLink = `https://mail.google.com/mail/u/0/#inbox/${m.id}`;
     const extractedDetails: ExtractedDeadlineDetails = tr?.extracted || {
       title: m.subject.replace(/^(Fwd:|Re:|\s)+/i, "").trim() || "Academic Notice",
@@ -525,8 +585,73 @@ export async function syncGmailWithReviewFlow(
       notes: `From: ${m.from}`,
     };
 
-    // If item already exists in inbox, update details if pending, otherwise preserve existing status
     const prevItem = existingMap.get(m.id);
+    let itemStatus: "pending" | "added" | "auto-added" | "dismissed" = prevItem ? prevItem.status : "pending";
+    let createdDeadlineId: string | undefined = prevItem?.createdDeadlineId;
+
+    // Check if eligible for Auto-Add
+    const isHighConfidenceRelevant =
+      verdict === "relevant" &&
+      confidence >= autoSettings.autoAddThreshold &&
+      Boolean(extractedDetails.dueDate && !extractedDetails.needsDate);
+
+    if (autoSettings.autoAddEnabled && isHighConfidenceRelevant && itemStatus === "pending") {
+      // Thread Deduplication: check if deadline for this thread already exists
+      const existingThreadDeadline = existingDeadlines.find(
+        (d) => d.sourceId === m.threadId || d.sourceId === m.id || d.id === `gmail_auto_${m.id}`
+      );
+
+      if (existingThreadDeadline) {
+        // Update existing deadline if due date or time changed
+        if (
+          existingThreadDeadline.dueDate !== extractedDetails.dueDate ||
+          existingThreadDeadline.dueTime !== (extractedDetails.dueTime || "23:59")
+        ) {
+          try {
+            await updateDeadline(userUid, existingThreadDeadline.id, {
+              dueDate: extractedDetails.dueDate!,
+              dueTime: extractedDetails.dueTime || "23:59",
+              taskName: extractedDetails.title || existingThreadDeadline.taskName,
+            });
+            logs.push(`[Auto-Add] Updated existing deadline for thread ${m.threadId}.`);
+          } catch (err) {
+            console.warn("Auto-update deadline warning:", err);
+          }
+        }
+        itemStatus = "auto-added";
+        createdDeadlineId = existingThreadDeadline.id;
+        autoAddedCount++;
+      } else {
+        // Create new auto-added deadline
+        const autoDeadline: Deadline = {
+          id: `gmail_auto_${m.id}`,
+          taskName: extractedDetails.title || m.subject,
+          subject: extractedDetails.course || course || "Gmail Auto",
+          description: `${extractedDetails.notes || reason}\n\nSender: ${m.from}\nReceived: ${m.date}`,
+          dueDate: extractedDetails.dueDate!,
+          dueTime: extractedDetails.dueTime || "23:59",
+          importance: confidence >= 0.9 ? "HIGH" : "MEDIUM",
+          completed: false,
+          createdAt: new Date().toISOString(),
+          source: "gmail-auto" as any,
+          sourceType: "imported",
+          sourceId: m.threadId || m.id,
+          dateSource: "ai-extracted",
+          confidence: confidence >= 0.9 ? "HIGH" : "MEDIUM",
+        };
+
+        try {
+          await createDeadline(userUid, autoDeadline);
+          itemStatus = "auto-added";
+          createdDeadlineId = autoDeadline.id;
+          autoAddedCount++;
+          logs.push(`[Auto-Add] Created deadline "${autoDeadline.taskName}" (${autoDeadline.dueDate}).`);
+        } catch (err) {
+          console.warn("Auto-create deadline error:", err);
+        }
+      }
+    }
+
     const reviewItem: GmailReviewItem = {
       id: m.id,
       threadId: m.threadId,
@@ -540,7 +665,8 @@ export async function syncGmailWithReviewFlow(
       confidence,
       reason,
       course,
-      status: prevItem ? prevItem.status : "pending",
+      status: itemStatus,
+      createdDeadlineId,
       extracted: extractedDetails,
       createdAt: prevItem ? prevItem.createdAt : new Date().toISOString(),
     };
@@ -551,7 +677,6 @@ export async function syncGmailWithReviewFlow(
   const updatedInboxItems = Array.from(existingMap.values());
   saveReviewInbox(userUid, updatedInboxItems);
 
-  // Update Gmail Metadata
   const processedIds = Array.from(
     new Set([...meta.processedMessageIds, ...fetchResult.messages.map((m) => m.id)])
   );
@@ -559,12 +684,14 @@ export async function syncGmailWithReviewFlow(
     ...meta,
     isConnected: true,
     lastSyncTime: new Date().toISOString(),
-    syncedMessagesCount: updatedInboxItems.filter((i) => i.status === "added").length,
+    syncedMessagesCount: updatedInboxItems.filter((i) => i.status === "added" || i.status === "auto-added").length,
     processedMessageIds: processedIds,
   });
 
   const pendingCount = updatedInboxItems.filter((i) => i.status === "pending").length;
-  const feedback = `Scanned ${rawFetchedCount} emails -> ${pendingCount} need your review -> ${ignoredCount} ignored.`;
+  const feedback = autoAddedCount > 0
+    ? `Scanned ${rawFetchedCount} emails -> Auto-added ${autoAddedCount} confident task(s) -> ${pendingCount} need review -> ${ignoredCount} ignored.`
+    : `Scanned ${rawFetchedCount} emails -> ${pendingCount} need your review -> ${ignoredCount} ignored.`;
 
   logs.push(`[Summary] ${feedback}`);
   console.log(`[DeadlineIQ Gmail Sync]`, logs);
@@ -576,6 +703,7 @@ export async function syncGmailWithReviewFlow(
     relevantCount,
     maybeCount,
     ignoredCount,
+    autoAddedCount,
     pendingReviewCount: pendingCount,
     feedback,
     logs,
