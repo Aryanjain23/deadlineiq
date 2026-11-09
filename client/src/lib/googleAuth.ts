@@ -1,8 +1,10 @@
 /**
  * Unified Google Workspace Auth Manager for DeadlineIQ
  *
- * Provides single, unified Google OAuth 2.0 authorization for both Gmail and Google Calendar
- * using the project's single OAuth Client ID and server-side offline refresh tokens.
+ * Implements a robust, server-driven OAuth 2.0 authorization code flow
+ * (no Google Identity Services popup code flow or fragile 'postmessage' redirect URI).
+ * Directly opens /api/auth/google/start?service=...&uid=... in a popup, handles callback
+ * via postMessage, and manages per-service access & refresh tokens via the server.
  */
 
 import appletConfig from "../../../firebase-applet-config.json";
@@ -12,7 +14,6 @@ import {
   clearGoogleAccessToken,
   getGoogleCalendarMeta,
   saveGoogleCalendarMeta,
-  ensureGoogleIdentityServices,
   type GoogleCalendarMeta,
 } from "./googleCalendar";
 import {
@@ -24,16 +25,10 @@ import {
   type GmailMeta,
 } from "./gmail";
 
-export const UNIFIED_GOOGLE_SCOPES = [
-  "https://www.googleapis.com/auth/gmail.readonly",
-  "https://www.googleapis.com/auth/calendar.events",
-  "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
-  "openid",
-  "email",
-].join(" ");
-
 export function getGoogleOAuthClientId(): string {
-  const envClientId = import.meta.env.VITE_GOOGLE_CALENDAR_CLIENT_ID || (import.meta.env as any).VITE_GOOGLE_CLIENT_ID;
+  const envClientId =
+    import.meta.env.VITE_GOOGLE_CALENDAR_CLIENT_ID ||
+    (import.meta.env as any).VITE_GOOGLE_CLIENT_ID;
   if (envClientId && typeof envClientId === "string" && envClientId.trim() !== "") {
     return envClientId.trim();
   }
@@ -51,329 +46,209 @@ export function isGoogleOAuthConfigured(): boolean {
 }
 
 /**
- * Silently refreshes the access token via server refresh token endpoint.
- * Automatically retries once on 401, and updates service-specific status.
+ * Gets a valid access token for the given user and service.
+ * Checks in-memory cache first, then calls /api/google/oauth/token (which automatically
+ * refreshes using server-stored refresh tokens and retries on 401).
+ */
+export async function getValidGoogleAccessToken(
+  userUid: string,
+  service: "gmail" | "calendar" = "calendar"
+): Promise<string | null> {
+  if (!userUid) return null;
+
+  // 1. Check in-memory token cache
+  const cached = service === "gmail" ? getGmailAccessToken() : getGoogleAccessToken();
+  if (cached) return cached;
+
+  // 2. Fetch or refresh from server token endpoint
+  try {
+    const res = await fetch(`/api/google/oauth/token?uid=${encodeURIComponent(userUid)}&service=${service}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && data.accessToken) {
+        if (service === "gmail") {
+          setGmailAccessToken(data.accessToken, 3599);
+        } else {
+          setGoogleAccessToken(data.accessToken, 3599);
+        }
+        return data.accessToken;
+      }
+    } else if (res.status === 401) {
+      // Reconnect required
+      if (service === "calendar") {
+        const calMeta = getGoogleCalendarMeta(userUid);
+        saveGoogleCalendarMeta(userUid, { ...calMeta, isConnected: false });
+        clearGoogleAccessToken();
+      } else {
+        const gmMeta = getGmailMeta(userUid);
+        saveGmailMeta(userUid, { ...gmMeta, isConnected: false });
+        clearGmailAccessToken();
+      }
+    }
+  } catch (err) {
+    console.warn(`Error getting ${service} access token from server:`, err);
+  }
+
+  return null;
+}
+
+/**
+ * Explicit token refresh helper for backward compatibility.
  */
 export async function refreshGoogleAccessToken(
   userUid: string,
   service: "gmail" | "calendar" | "unified" = "unified"
 ): Promise<string | null> {
   if (!userUid) return null;
-  try {
-    const res = await fetch("/api/google/oauth/refresh-token", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userUid, service }),
-    });
 
-    if (res.ok) {
-      const data = await res.json();
-      if (data.success && data.access_token) {
-        const now = new Date().toISOString();
-        if (service === "calendar" || service === "unified") {
-          setGoogleAccessToken(data.access_token, data.expires_in);
-          const calMeta = getGoogleCalendarMeta(userUid);
-          saveGoogleCalendarMeta(userUid, {
-            ...calMeta,
-            isConnected: true,
-            connectedEmail: data.connectedEmail || calMeta.connectedEmail,
-            lastSyncTime: now,
-          });
-        }
-        if (service === "gmail" || service === "unified") {
-          setGmailAccessToken(data.access_token, data.expires_in);
-          const gmMeta = getGmailMeta(userUid);
-          saveGmailMeta(userUid, {
-            ...gmMeta,
-            isConnected: true,
-            connectedEmail: data.connectedEmail || gmMeta.connectedEmail,
-            lastSyncTime: now,
-          });
-        }
-        return data.access_token;
-      }
-    } else if (res.status === 401) {
-      // Marked as Needs reconnect
-      console.warn(`OAuth refresh token revoked or expired for ${userUid} (${service})`);
-      if (service === "calendar" || service === "unified") {
-        const calMeta = getGoogleCalendarMeta(userUid);
-        saveGoogleCalendarMeta(userUid, { ...calMeta, isConnected: false });
-      }
-      if (service === "gmail" || service === "unified") {
-        const gmMeta = getGmailMeta(userUid);
-        saveGmailMeta(userUid, { ...gmMeta, isConnected: false });
-      }
-    }
-  } catch (err) {
-    console.warn("Silent OAuth token refresh warning:", err);
+  if (service === "unified") {
+    const calToken = await getValidGoogleAccessToken(userUid, "calendar");
+    const gmToken = await getValidGoogleAccessToken(userUid, "gmail");
+    return calToken || gmToken;
   }
-  return null;
+
+  return getValidGoogleAccessToken(userUid, service);
 }
 
-/**
- * Gets a valid access token for API calls (using in-memory token or refreshing via server).
- */
-export async function getValidGoogleAccessToken(
-  userUid: string,
-  service: "gmail" | "calendar" | "unified" = "unified"
-): Promise<string | null> {
-  const cached = service === "gmail" ? getGmailAccessToken() : getGoogleAccessToken();
-  if (cached) return cached;
-
-  return refreshGoogleAccessToken(userUid, service);
-}
-
-/**
- * Requests unified Google access for both Gmail and Google Calendar.
- * Uses authorization code flow with access_type=offline, prompt=consent, include_granted_scopes=true.
- * After token exchange, inspects granted scopes and enforces that services are only marked connected
- * if their respective scopes were explicitly granted by the user.
- */
-export async function requestUnifiedGoogleAccess(
-  userUid: string,
-  targetService: "gmail" | "calendar" | "unified" = "unified"
-): Promise<{
+export interface GoogleAuthPopupResult {
   accessToken: string;
   connectedEmail: string;
   calendarMeta: GoogleCalendarMeta;
   gmailMeta: GmailMeta;
-}> {
-  const clientId = getGoogleOAuthClientId();
-  if (!clientId) {
-    throw new Error("Google OAuth Client ID is missing or not configured.");
+}
+
+/**
+ * Launches the server-driven Google OAuth authorization popup.
+ *
+ * Directs browser to /api/auth/google/start?service=...&uid=..., where the server generates
+ * an HMAC-signed state, uses the exact redirect URI matching the request origin, and requests
+ * only the necessary scopes for that service.
+ *
+ * Listens for the postMessage event sent by the callback page upon completion.
+ */
+export async function openGoogleAuthPopup(
+  userUid: string,
+  service: "gmail" | "calendar" | "unified" = "calendar"
+): Promise<GoogleAuthPopupResult> {
+  if (!userUid) {
+    throw new Error("User UID is required to connect Google account.");
   }
 
-  await ensureGoogleIdentityServices();
+  const width = 540;
+  const height = 680;
+  const left = window.screenX + Math.max(0, (window.outerWidth - width) / 2);
+  const top = window.screenY + Math.max(0, (window.outerHeight - height) / 2);
 
-  const google = (window as any).google;
-  if (!google?.accounts?.oauth2) {
-    throw new Error("Google Identity Services library is unavailable.");
+  const startUrl = `/api/auth/google/start?service=${encodeURIComponent(service)}&uid=${encodeURIComponent(userUid)}`;
+
+  const popup = window.open(
+    startUrl,
+    "deadlineiq_google_oauth_popup",
+    `width=${width},height=${height},left=${left},top=${top},status=no,menubar=no,toolbar=no,location=no`
+  );
+
+  if (!popup) {
+    throw new Error("Unable to open popup window. Please allow popups for this site and try again.");
   }
 
   return new Promise((resolve, reject) => {
-    try {
-      const runTokenClientFallback = () => {
-        try {
-          const tokenClient = google.accounts.oauth2.initTokenClient({
-            client_id: clientId,
-            scope: UNIFIED_GOOGLE_SCOPES,
-            prompt: "consent",
-            include_granted_scopes: true,
-            callback: async (tokenResponse: any) => {
-              if (tokenResponse.error) {
-                if (tokenResponse.error === "access_denied") {
-                  reject(new Error("Google access was denied. On the Google consent screen, please click Continue and allow the requested permissions."));
-                  return;
-                }
-                reject(new Error(tokenResponse.error_description || tokenResponse.error || "Google authorization failed."));
-                return;
-              }
+    let isFinished = false;
 
-              const accessToken = tokenResponse.access_token;
-              const expiresIn = Number(tokenResponse.expires_in) || 3599;
-
-              // Inspect client granted scopes if available
-              const grantedStr = typeof tokenResponse.scope === "string" ? tokenResponse.scope : "";
-              const hasGmail = grantedStr.includes("gmail.readonly");
-              const hasCalendar = grantedStr.includes("calendar.events") || grantedStr.includes("calendar.readonly");
-
-              if (targetService === "calendar" && !hasCalendar && grantedStr) {
-                reject(new Error("Google didn't grant Calendar access. On the Google screen, tick all the checkboxes, then try again."));
-                return;
-              }
-              if (targetService === "gmail" && !hasGmail && grantedStr) {
-                reject(new Error("Google didn't grant Gmail access. On the Google screen, tick all the checkboxes, then try again."));
-                return;
-              }
-
-              let connectedEmail = "Primary Account";
-              try {
-                const profileRes = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
-                  headers: { Authorization: `Bearer ${accessToken}` },
-                });
-                if (profileRes.ok) {
-                  const pData = await profileRes.json();
-                  if (pData.email) connectedEmail = pData.email;
-                }
-              } catch {}
-
-              const now = new Date().toISOString();
-              const calMeta = getGoogleCalendarMeta(userUid);
-              const isCalGranted = grantedStr ? hasCalendar : true;
-              const updatedCalMeta = {
-                ...calMeta,
-                isConnected: isCalGranted,
-                connectedEmail: isCalGranted ? connectedEmail : calMeta.connectedEmail,
-                lastSyncTime: isCalGranted ? now : calMeta.lastSyncTime,
-              };
-              saveGoogleCalendarMeta(userUid, updatedCalMeta);
-              if (isCalGranted) setGoogleAccessToken(accessToken, expiresIn);
-
-              const gmMeta = getGmailMeta(userUid);
-              const isGmGranted = grantedStr ? hasGmail : true;
-              const updatedGmMeta = {
-                ...gmMeta,
-                isConnected: isGmGranted,
-                connectedEmail: isGmGranted ? connectedEmail : gmMeta.connectedEmail,
-                lastSyncTime: isGmGranted ? now : gmMeta.lastSyncTime,
-              };
-              saveGmailMeta(userUid, updatedGmMeta);
-              if (isGmGranted) setGmailAccessToken(accessToken, expiresIn);
-
-              resolve({
-                accessToken,
-                connectedEmail,
-                calendarMeta: updatedCalMeta,
-                gmailMeta: updatedGmMeta,
-              });
-            },
-          });
-
-          tokenClient.requestAccessToken({ prompt: "consent" });
-        } catch (tokenErr: any) {
-          reject(new Error(tokenErr?.message || "Failed to initialize Google token authorization popup."));
-        }
-      };
-
-      // 1. Try Authorization Code Flow (initCodeClient) for offline refresh tokens
-      if (google.accounts.oauth2.initCodeClient) {
-        const codeClient = google.accounts.oauth2.initCodeClient({
-          client_id: clientId,
-          scope: UNIFIED_GOOGLE_SCOPES,
-          ux_mode: "popup",
-          access_type: "offline",
-          prompt: "consent",
-          include_granted_scopes: true,
-          callback: async (response: any) => {
-            if (response.error) {
-              if (response.error === "access_denied") {
-                reject(new Error("Google access was denied. On the Google consent screen, please click Continue and allow the requested permissions."));
-                return;
-              }
-              reject(new Error(response.error_description || response.error || "Google authorization failed."));
-              return;
-            }
-
-            if (!response.code) {
-              reject(new Error("No authorization code was returned by Google."));
-              return;
-            }
-
-            try {
-              // Exchange authorization code on server
-              const exRes = await fetch("/api/google/oauth/exchange-code", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ code: response.code, userUid, service: targetService }),
-              });
-
-              if (!exRes.ok) {
-                const errData = await exRes.json().catch(() => ({}));
-                const rawMsg = errData.error || "";
-
-                // If secret is not yet set on server, seamlessly fall back to token client for this session
-                if (rawMsg.includes("GOOGLE_CLIENT_SECRET is missing")) {
-                  console.warn("Server is missing GOOGLE_CLIENT_SECRET; falling back to direct client authorization...");
-                  runTokenClientFallback();
-                  return;
-                }
-
-                throw new Error(rawMsg || `Server code exchange failed HTTP ${exRes.status}`);
-              }
-
-              const exData = await exRes.json();
-              const accessToken = exData.access_token;
-              const connectedEmail = exData.connectedEmail || "Primary Account";
-              const expiresIn = exData.expires_in || 3599;
-              const gmailGranted = Boolean(exData.gmailGranted);
-              const calendarGranted = Boolean(exData.calendarGranted);
-
-              // Check if user unticked the scope for the service they requested
-              if (targetService === "calendar" && !calendarGranted) {
-                const calMeta = getGoogleCalendarMeta(userUid);
-                saveGoogleCalendarMeta(userUid, { ...calMeta, isConnected: false });
-                throw new Error(exData.calendarError || "Google didn't grant Calendar access. On the Google screen, tick all the checkboxes, then try again.");
-              }
-
-              if (targetService === "gmail" && !gmailGranted) {
-                const gmMeta = getGmailMeta(userUid);
-                saveGmailMeta(userUid, { ...gmMeta, isConnected: false });
-                throw new Error(exData.gmailError || "Google didn't grant Gmail access. On the Google screen, tick all the checkboxes, then try again.");
-              }
-
-              if (targetService === "unified" && !gmailGranted && !calendarGranted) {
-                const calMeta = getGoogleCalendarMeta(userUid);
-                saveGoogleCalendarMeta(userUid, { ...calMeta, isConnected: false });
-                const gmMeta = getGmailMeta(userUid);
-                saveGmailMeta(userUid, { ...gmMeta, isConnected: false });
-                throw new Error("Google didn't grant Gmail or Calendar access. On the Google screen, tick all the checkboxes, then try again.");
-              }
-
-              const now = new Date().toISOString();
-
-              // Update Calendar meta only if Calendar was granted
-              const calMeta = getGoogleCalendarMeta(userUid);
-              let updatedCalMeta: GoogleCalendarMeta;
-              if (calendarGranted) {
-                setGoogleAccessToken(accessToken, expiresIn);
-                updatedCalMeta = {
-                  ...calMeta,
-                  isConnected: true,
-                  connectedEmail,
-                  lastSyncTime: now,
-                };
-                saveGoogleCalendarMeta(userUid, updatedCalMeta);
-              } else {
-                updatedCalMeta = {
-                  ...calMeta,
-                  isConnected: false,
-                };
-                saveGoogleCalendarMeta(userUid, updatedCalMeta);
-              }
-
-              // Update Gmail meta only if Gmail was granted
-              const gmMeta = getGmailMeta(userUid);
-              let updatedGmMeta: GmailMeta;
-              if (gmailGranted) {
-                setGmailAccessToken(accessToken, expiresIn);
-                updatedGmMeta = {
-                  ...gmMeta,
-                  isConnected: true,
-                  connectedEmail,
-                  lastSyncTime: now,
-                };
-                saveGmailMeta(userUid, updatedGmMeta);
-              } else {
-                updatedGmMeta = {
-                  ...gmMeta,
-                  isConnected: false,
-                };
-                saveGmailMeta(userUid, updatedGmMeta);
-              }
-
-              resolve({
-                accessToken,
-                connectedEmail,
-                calendarMeta: updatedCalMeta,
-                gmailMeta: updatedGmMeta,
-              });
-            } catch (err: any) {
-              reject(err);
-            }
-          },
-        });
-
-        codeClient.requestCode();
+    const handleMessage = async (event: MessageEvent) => {
+      // Validate event type
+      if (!event.data || event.data.type !== "google-auth") {
         return;
       }
 
-      // 2. Fallback to initTokenClient if initCodeClient is unavailable
-      runTokenClientFallback();
-    } catch (err: any) {
-      reject(new Error(err?.message || "Failed to initialize Google authorization popup."));
-    }
+      cleanup();
+      isFinished = true;
+
+      if (!event.data.ok) {
+        const errMessage = event.data.error || "Google authorization failed.";
+        reject(new Error(errMessage));
+        return;
+      }
+
+      try {
+        const connectedEmail = event.data.connectedEmail || "Primary Account";
+        const now = new Date().toISOString();
+
+        let accessToken = "";
+        const target = service === "unified" ? "calendar" : service;
+
+        // Fetch fresh access token from server endpoint
+        const tokenRes = await fetch(`/api/google/oauth/token?uid=${encodeURIComponent(userUid)}&service=${target}`);
+        if (tokenRes.ok) {
+          const tData = await tokenRes.json();
+          accessToken = tData.accessToken || "";
+        }
+
+        let updatedCalMeta = getGoogleCalendarMeta(userUid);
+        let updatedGmMeta = getGmailMeta(userUid);
+
+        if (service === "calendar" || service === "unified") {
+          if (accessToken) setGoogleAccessToken(accessToken, 3599);
+          updatedCalMeta = {
+            ...updatedCalMeta,
+            isConnected: true,
+            connectedEmail,
+            lastSyncTime: now,
+          };
+          saveGoogleCalendarMeta(userUid, updatedCalMeta);
+        }
+
+        if (service === "gmail" || service === "unified") {
+          let gmToken = accessToken;
+          if (service === "unified") {
+            const gmRes = await fetch(`/api/google/oauth/token?uid=${encodeURIComponent(userUid)}&service=gmail`);
+            if (gmRes.ok) {
+              const gmData = await gmRes.json();
+              gmToken = gmData.accessToken || accessToken;
+            }
+          }
+          if (gmToken) setGmailAccessToken(gmToken, 3599);
+          updatedGmMeta = {
+            ...updatedGmMeta,
+            isConnected: true,
+            connectedEmail,
+            lastSyncTime: now,
+          };
+          saveGmailMeta(userUid, updatedGmMeta);
+        }
+
+        resolve({
+          accessToken,
+          connectedEmail,
+          calendarMeta: updatedCalMeta,
+          gmailMeta: updatedGmMeta,
+        });
+      } catch (err: any) {
+        reject(new Error(err?.message || "Failed to initialize connected session."));
+      }
+    };
+
+    const timer = setInterval(() => {
+      if (popup.closed) {
+        cleanup();
+        if (!isFinished) {
+          reject(new Error("Authorization popup was closed before completing sign-in."));
+        }
+      }
+    }, 600);
+
+    const cleanup = () => {
+      clearInterval(timer);
+      window.removeEventListener("message", handleMessage);
+    };
+
+    window.addEventListener("message", handleMessage);
   });
 }
+
+/**
+ * Backward compatibility alias so existing callers seamlessly use the new server-driven flow.
+ */
+export const requestUnifiedGoogleAccess = openGoogleAuthPopup;
 
 /**
  * Revokes Google OAuth access for a user and service, deleting server-stored refresh token.
@@ -412,3 +287,33 @@ export async function disconnectUnifiedGoogleAccess(
   }
 }
 
+/**
+ * Performs a live test of the user's connection to Gmail or Calendar.
+ * Makes a real API call on the server to verify active token and scopes.
+ */
+export async function testGoogleConnection(
+  userUid: string,
+  service: "gmail" | "calendar"
+): Promise<{
+  success: boolean;
+  message: string;
+  error?: string;
+  errorCode?: string;
+  details?: any;
+}> {
+  try {
+    const res = await fetch("/api/google/oauth/test-connection", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ uid: userUid, service }),
+    });
+    return await res.json();
+  } catch (err: any) {
+    return {
+      success: false,
+      message: err?.message || "Failed to contact connection verification endpoint.",
+      error: err?.message,
+      errorCode: "network_error",
+    };
+  }
+}

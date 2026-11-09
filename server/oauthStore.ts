@@ -5,11 +5,14 @@ export interface StoredOAuthToken {
   userUid: string;
   service: "gmail" | "calendar" | "unified";
   refreshToken: string;
+  accessToken?: string;
+  tokenExpiresAt?: number;
   connectedEmail: string | null;
   scopes: string[];
   updatedAt: string;
   lastSyncTime?: string;
   lastError?: string | null;
+  lastErrorCode?: string | null;
 }
 
 const TOKENS_FILE_PATH = path.resolve(process.cwd(), "data", "oauth-tokens.json");
@@ -100,7 +103,15 @@ export function deleteServerOAuthToken(
 export function updateServerOAuthMetadata(
   userUid: string,
   service: "gmail" | "calendar" | "unified",
-  updates: { lastSyncTime?: string; lastError?: string | null; scopes?: string[] }
+  updates: {
+    lastSyncTime?: string;
+    lastError?: string | null;
+    lastErrorCode?: string | null;
+    scopes?: string[];
+    accessToken?: string;
+    tokenExpiresAt?: number;
+    connectedEmail?: string | null;
+  }
 ): void {
   const store = loadTokensStore();
   const key = `${userUid}_${service}`;

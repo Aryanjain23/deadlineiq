@@ -28,10 +28,14 @@ import { checkAccount, registerAccount, unregisterAccount } from "./accounts.js"
 import { getAdminAuth, getAdminFirestore, getAdminStorage } from "./firebaseAdmin.js";
 import { saveServerOAuthToken, getServerOAuthToken, deleteServerOAuthToken } from "./oauthStore.js";
 import {
-  exchangeGoogleAuthorizationCode,
-  refreshGoogleAccessToken,
+  buildGoogleAuthUrl,
+  exchangeGoogleCallbackCode,
+  getAccessToken,
+  testGoogleServiceConnection,
   revokeGoogleAccessToken,
   getGoogleSetupCheck,
+  deriveRequestOrigin,
+  formatGoogleOAuthError,
 } from "./googleOAuthService.js";
 
 export const app = express();
@@ -196,58 +200,185 @@ app.post("/api/gmail/triage-extract", async (req, res) => {
   }
 });
 
-// Google OAuth Authorization Code Exchange Endpoint (Single Shared Service for Gmail & Calendar)
-app.post("/api/google/oauth/exchange-code", async (req, res) => {
+// STEP 1 & 2: Server-Driven Google OAuth Start Route
+app.get("/api/auth/google/start", (req, res) => {
   try {
-    const { code, userUid, service = "unified" } = req.body || {};
-    if (!code || !userUid) {
-      return res.status(400).json({ error: "Authorization code and userUid are required." });
+    const service = (req.query.service as string) === "gmail" ? "gmail" : "calendar";
+    const uid = (req.query.uid as string) || "";
+    if (!uid) {
+      return res.status(400).send("User UID is required to initiate authorization.");
     }
 
-    const result = await exchangeGoogleAuthorizationCode(code, userUid, service as any);
-    res.json({
-      success: true,
-      access_token: result.access_token,
-      expires_in: result.expires_in,
-      connectedEmail: result.connectedEmail,
-      scope: result.scope,
-      grantedScopes: result.grantedScopes,
-      gmailGranted: result.gmailGranted,
-      calendarGranted: result.calendarGranted,
-      gmailError: result.gmailError,
-      calendarError: result.calendarError,
-    });
-  } catch (error: any) {
-    console.warn("OAuth exchange error:", error?.message || error);
-    res.status(400).json({ error: error?.message || "Failed to exchange authorization code." });
+    const origin = deriveRequestOrigin(req);
+    const authUrl = buildGoogleAuthUrl(origin, service, uid);
+    res.redirect(authUrl);
+  } catch (err: any) {
+    console.error("[OAuth Start Error]", err);
+    res.status(500).send(`Failed to start Google OAuth flow: ${err?.message || err}`);
   }
 });
 
-// Google OAuth Silent Token Refresh Endpoint (Single Shared Service for Gmail & Calendar)
-app.post("/api/google/oauth/refresh-token", async (req, res) => {
+// STEP 1 & 2: Server-Driven Google OAuth Callback Route
+app.get("/api/auth/google/callback", async (req, res) => {
+  const code = req.query.code as string;
+  const state = req.query.state as string;
+  const error = req.query.error as string;
+  const errorDesc = req.query.error_description as string;
+  const origin = deriveRequestOrigin(req);
+
+  let resultPayload: any;
+
+  if (error) {
+    const friendly = formatGoogleOAuthError({ error, error_description: errorDesc });
+    resultPayload = {
+      type: "google-auth",
+      ok: false,
+      service: "unknown",
+      error: friendly,
+      error_description: errorDesc,
+      errorCode: error,
+    };
+  } else if (!code || !state) {
+    resultPayload = {
+      type: "google-auth",
+      ok: false,
+      service: "unknown",
+      error: "Authorization code or session state is missing.",
+      errorCode: "missing_params",
+    };
+  } else {
+    const exchangeResult = await exchangeGoogleCallbackCode(code, state);
+    resultPayload = {
+      type: "google-auth",
+      ok: exchangeResult.ok,
+      service: exchangeResult.service,
+      connectedEmail: exchangeResult.connectedEmail,
+      error: exchangeResult.error,
+      error_description: exchangeResult.error_description,
+      errorCode: exchangeResult.errorCode,
+    };
+  }
+
+  // Render popup auto-closer page that posts message to window.opener
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Google Authorization</title>
+  <style>
+    body {
+      background: #0c101a;
+      color: #f8fafc;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 24px;
+      box-sizing: border-box;
+    }
+    .card {
+      background: #151c2d;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 16px;
+      padding: 32px;
+      max-width: 440px;
+      text-align: center;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+    }
+    .status-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      margin: 0 auto 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+    }
+    .success { background: rgba(16, 185, 129, 0.2); color: #10b981; }
+    .error { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+    h2 { margin: 0 0 8px; font-size: 18px; font-weight: 600; }
+    p { margin: 0 0 16px; font-size: 13px; color: #94a3b8; line-height: 1.5; }
+    .btn {
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 10px;
+      font-size: 13px;
+      cursor: pointer;
+      font-weight: 500;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="status-icon ${resultPayload.ok ? "success" : "error"}">
+      ${resultPayload.ok ? "✓" : "!"}
+    </div>
+    <h2>${resultPayload.ok ? "Authorization Successful" : "Authorization Notice"}</h2>
+    <p>${resultPayload.ok ? "Your Google account has been connected. This window will close automatically." : (resultPayload.error || "Unable to complete authorization.")}</p>
+    <button class="btn" onclick="window.close()">Close Window</button>
+  </div>
+  <script>
+    (function() {
+      const payload = ${JSON.stringify(resultPayload)};
+      try {
+        if (window.opener && !window.opener.closed) {
+          window.opener.postMessage(payload, "*");
+        }
+      } catch (e) {
+        console.warn("Could not post message to opener:", e);
+      }
+      setTimeout(function() {
+        try { window.close(); } catch (e) {}
+      }, 700);
+    })();
+  </script>
+</body>
+</html>`;
+
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.send(html);
+});
+
+// STEP 4: Token Access Endpoint for client operations
+app.get("/api/google/oauth/token", async (req, res) => {
   try {
-    const { userUid, service = "unified" } = req.body || {};
-    if (!userUid) {
-      return res.status(400).json({ error: "User UID is required." });
+    const uid = req.query.uid as string;
+    const service = (req.query.service as string) === "gmail" ? "gmail" : "calendar";
+    if (!uid) {
+      return res.status(400).json({ success: false, error: "UID parameter is required." });
     }
 
-    const result = await refreshGoogleAccessToken(userUid, service as any);
-    res.json({
-      success: true,
-      access_token: result.access_token,
-      expires_in: result.expires_in,
-      connectedEmail: result.connectedEmail,
+    const token = await getAccessToken(uid, service);
+    res.json({ success: true, accessToken: token, service });
+  } catch (err: any) {
+    const status = err?.code === "reconnect_required" || err?.code === "not_connected" ? 401 : 400;
+    res.status(status).json({
+      success: false,
+      error: err?.message || "Failed to retrieve access token.",
+      code: err?.code || "TOKEN_ERROR",
     });
-  } catch (error: any) {
-    console.warn("OAuth refresh error:", error?.message || error);
-    if (error?.code === "reconnect_required") {
-      return res.status(401).json({
-        success: false,
-        error: "reconnect_required",
-        message: error.message || "Google authorization session ended. Reconnection required.",
-      });
+  }
+});
+
+// STEP 7: Test Connection Endpoint (makes real API call)
+app.post("/api/google/oauth/test-connection", async (req, res) => {
+  try {
+    const userUid = (req.body?.userUid || req.body?.uid || "").toString().trim();
+    const service = (req.body?.service || "").toString().trim();
+    if (!userUid || !service) {
+      return res.status(400).json({ success: false, message: "userUid and service are required." });
     }
-    res.status(400).json({ error: error?.message || "Token refresh failed." });
+
+    const targetService = service === "gmail" ? "gmail" : "calendar";
+    const result = await testGoogleServiceConnection(userUid, targetService);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err?.message || "Test connection failed." });
   }
 });
 
@@ -272,7 +403,8 @@ app.get("/api/google/oauth/status", (req, res) => {
   const uid = req.query.uid as string;
   if (!uid) return res.status(400).json({ error: "UID required" });
 
-  const status = getGoogleSetupCheck(uid);
+  const origin = deriveRequestOrigin(req);
+  const status = getGoogleSetupCheck(uid, origin);
   res.json({
     gmailConnected: status.gmailConnected,
     gmailEmail: status.gmailConnected ? "Connected" : null,
@@ -281,10 +413,11 @@ app.get("/api/google/oauth/status", (req, res) => {
   });
 });
 
-// Google Setup Check Endpoint (Returns ONLY booleans & diagnostics, never secret values)
+// Google Setup Check Endpoint (Returns booleans and diagnostic details)
 app.get("/api/google/oauth/setup-check", (req, res) => {
   const uid = (req.query.uid as string) || "";
-  const diagnostics = getGoogleSetupCheck(uid);
+  const origin = deriveRequestOrigin(req);
+  const diagnostics = getGoogleSetupCheck(uid, origin);
   res.json({
     success: true,
     diagnostics,
