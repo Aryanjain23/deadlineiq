@@ -308,34 +308,15 @@ export async function exchangeGoogleCallbackCode(
 
   const { access_token, refresh_token, expires_in, scope } = tokenData;
 
-  // Log granted scopes
+  // 1. Log exact granted scopes vs requested scopes server-side (no tokens)
   const scopeStr = typeof scope === "string" ? scope.trim() : "";
   const grantedScopes = scopeStr ? scopeStr.split(/\s+/).filter(Boolean) : [];
+  const requestedScopesArray = service === "gmail" ? GMAIL_SCOPES : CALENDAR_SCOPES;
+  const requestedScopesStr = requestedScopesArray.join(" ");
 
-  console.log(`[Google OAuth Granted Scopes] Count: ${grantedScopes.length}, Scopes: ${scopeStr}`);
-
-  // Check required scope
-  const requiredScope = service === "gmail" ? REQUIRED_GMAIL_SCOPE : REQUIRED_CALENDAR_SCOPE;
-  const isRequiredScopeGranted = grantedScopes.some((s) => s.includes(requiredScope) || s.endsWith(requiredScope.split("/").pop() || ""));
-
-  if (!isRequiredScopeGranted) {
-    const missingMsg = `Google didn't grant ${service === "gmail" ? "Gmail" : "Calendar"} access. Tick the checkbox on the Google consent screen and try again.`;
-    console.warn(`[Google OAuth Missing Scope] Required scope "${requiredScope}" was not granted by user.`);
-
-    updateServerOAuthMetadata(uid, service, {
-      lastError: missingMsg,
-      lastErrorCode: "insufficient_scope",
-      scopes: grantedScopes,
-    });
-
-    return {
-      ok: false,
-      service,
-      connectedEmail: null,
-      error: missingMsg,
-      errorCode: "scope_missing",
-    };
-  }
+  console.log(`[Google OAuth Callback] Service: ${service}`);
+  console.log(`[Google OAuth Callback] Requested scopes: ${requestedScopesStr}`);
+  console.log(`[Google OAuth Callback] Granted scopes: ${scopeStr}`);
 
   // Retrieve user email
   let connectedEmail: string | null = null;
@@ -368,6 +349,70 @@ export async function exchangeGoogleCallbackCode(
     lastSyncTime: now,
     lastError: null,
     lastErrorCode: null,
+  });
+
+  // 2. Verify via ONE real API call as the ultimate source of truth (Requirement #3)
+  // Calendar -> calendarList.list?maxResults=1, Gmail -> gmail/v1/users/me/profile
+  let apiVerified = false;
+  let apiErrorMsg = "";
+  let apiErrorCode = "";
+
+  try {
+    const testRes = await testGoogleServiceConnection(uid, service);
+    if (testRes.success) {
+      apiVerified = true;
+    } else {
+      apiErrorMsg = testRes.error || testRes.message || "API test failed";
+      apiErrorCode = testRes.errorCode || "API_ERROR";
+    }
+  } catch (apiErr: any) {
+    apiErrorMsg = apiErr?.message || "API test exception";
+    apiErrorCode = apiErr?.code || "API_EXCEPTION";
+  }
+
+  // 3. Tolerant scope string comparison as secondary fallback (Requirement #4)
+  const shortTarget = service === "gmail" ? "gmail.readonly" : "calendar.events";
+  const broadTarget = service === "gmail" ? "gmail" : "calendar";
+  const readOnlyTarget = service === "calendar" ? "calendar.readonly" : "";
+  const fullTarget = service === "gmail" ? REQUIRED_GMAIL_SCOPE : REQUIRED_CALENDAR_SCOPE;
+
+  const isTolerantMatch = grantedScopes.some((s) => {
+    const lower = s.toLowerCase();
+    return (
+      lower.includes(shortTarget) ||
+      lower.includes(fullTarget) ||
+      lower.includes(broadTarget) ||
+      (readOnlyTarget && lower.includes(readOnlyTarget))
+    );
+  });
+
+  // If either API verification succeeded OR tolerant scope match succeeded, connection is successful!
+  if (!apiVerified && !isTolerantMatch) {
+    const missingMsg = `Google didn't grant ${service === "gmail" ? "Gmail" : "Calendar"} access (Requested: ${requestedScopesStr} | Granted: ${scopeStr || "none"}). Tick all checkboxes on the Google consent screen and try again.`;
+    console.warn(`[Google OAuth Scope Warning] ${missingMsg}`);
+
+    updateServerOAuthMetadata(uid, service, {
+      lastError: missingMsg,
+      lastErrorCode: "insufficient_scope",
+      scopes: grantedScopes,
+    });
+
+    return {
+      ok: false,
+      service,
+      connectedEmail: null,
+      error: missingMsg,
+      error_description: apiErrorMsg || "Insufficient scope or API verification failed",
+      errorCode: apiErrorCode || "insufficient_scope",
+    };
+  }
+
+  // Final metadata update clearing any error
+  updateServerOAuthMetadata(uid, service, {
+    lastError: null,
+    lastErrorCode: null,
+    scopes: grantedScopes,
+    connectedEmail: connectedEmail || existing?.connectedEmail || null,
   });
 
   return {
